@@ -1,0 +1,107 @@
+'use server';
+
+import { adminDb } from '@/lib/firebase/admin';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { AttendanceRecord, BreakRecord } from '@/types';
+import { calculateHours } from '@/lib/utils';
+
+export async function updateAttendance(
+  employeeId: string,
+  date: string,
+  updates: {
+    clockIn?: string;
+    clockOut?: string;
+    breaks?: BreakRecord[];
+  },
+  editedBy: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${date}`);
+    const attendanceDoc = await attendanceRef.get();
+
+    const updateData: any = {
+      employeeId,
+      date,
+      isEditedByManagement: true,
+      editedBy,
+      editedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (updates.clockIn) {
+      updateData.clockIn = Timestamp.fromDate(new Date(updates.clockIn));
+    }
+
+    if (updates.clockOut) {
+      updateData.clockOut = Timestamp.fromDate(new Date(updates.clockOut));
+    }
+
+    if (updates.breaks) {
+      updateData.breaks = updates.breaks;
+    }
+
+    // Recalculate total hours if both clock in and out exist
+    if (updateData.clockIn && updateData.clockOut) {
+      const clockInTime = updates.clockIn!;
+      const clockOutTime = updates.clockOut!;
+      const breaks = updates.breaks || [];
+      updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
+    } else if (attendanceDoc.exists) {
+      const existing = attendanceDoc.data();
+      if (existing?.clockIn && updateData.clockOut && updates.clockOut) {
+        const clockInTime = existing.clockIn.toDate().toISOString();
+        const clockOutTime = updates.clockOut;
+        const breaks = updates.breaks || existing.breaks || [];
+        updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
+      } else if (updateData.clockIn && existing?.clockOut && updates.clockIn) {
+        const clockInTime = updates.clockIn;
+        const clockOutTime = existing.clockOut.toDate().toISOString();
+        const breaks = updates.breaks || existing.breaks || [];
+        updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
+      }
+    }
+
+    await attendanceRef.set(updateData, { merge: true });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Update attendance error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getAttendanceByDate(
+  employeeId: string,
+  date: string
+): Promise<AttendanceRecord | null> {
+  try {
+    const doc = await adminDb.collection('attendance').doc(`${employeeId}_${date}`).get();
+    if (!doc.exists) {
+      return null;
+    }
+
+    const data = doc.data();
+    return {
+      id: doc.id,
+      employeeId: data?.employeeId,
+      date: data?.date,
+      clockIn: data?.clockIn?.toDate().toISOString(),
+      clockOut: data?.clockOut?.toDate().toISOString(),
+      breaks: (data?.breaks || []).map((b: any) => ({
+        startTime: b.startTime,
+        endTime: b.endTime,
+        duration: b.duration,
+      })),
+      totalHours: data?.totalHours,
+      editedBy: data?.editedBy,
+      editedAt: data?.editedAt?.toDate().toISOString(),
+      isEditedByManagement: data?.isEditedByManagement || false,
+      createdAt: data?.createdAt?.toDate().toISOString(),
+      updatedAt: data?.updatedAt?.toDate().toISOString(),
+    } as AttendanceRecord;
+  } catch (error: any) {
+    console.error('Get attendance by date error:', error);
+    return null;
+  }
+}
+
