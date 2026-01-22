@@ -70,18 +70,6 @@ This Employee Management Portal provides a complete solution for tracking employ
 7. **Open in browser**
    - Navigate to `http://localhost:3000` (or 3001 if 3000 is in use)
 
-## 📚 Documentation
-
-### 📖 Start Here
-1. **[QUICK_START.md](./QUICK_START.md)** - Get started in 30 minutes
-2. **[EXECUTIVE_SUMMARY.md](./EXECUTIVE_SUMMARY.md)** - High-level overview
-
-### 🔍 Detailed Guides
-3. **[SYSTEM_ANALYSIS.md](./SYSTEM_ANALYSIS.md)** - Complete system analysis
-4. **[TESTING_GUIDE.md](./TESTING_GUIDE.md)** - Comprehensive testing instructions
-5. **[ENHANCEMENTS_GUIDE.md](./ENHANCEMENTS_GUIDE.md)** - Code improvements and snippets
-6. **[FIXES_APPLIED.md](./FIXES_APPLIED.md)** - Summary of fixes
-
 ## 🏗️ Architecture
 
 ### Tech Stack
@@ -95,31 +83,44 @@ This Employee Management Portal provides a complete solution for tracking employ
 ```
 employee-portal/
 ├── app/
-│   ├── actions/              # Server-side actions
-│   │   ├── attendance.ts     # Attendance management
-│   │   ├── notes.ts          # Notes CRUD
-│   │   ├── employees.ts      # Employee management
-│   │   └── export.ts         # Export functionality
+│   ├── actions/                    # Server-side actions (Server Components)
+│   │   ├── attendance.ts
+│   │   ├── notes.ts
+│   │   ├── employees.ts
+│   │   └── export.ts
 │   ├── dashboard/
-│   │   └── page.tsx          # Main dashboard router
-│   └── login/
-│       └── page.tsx          # Login page
+│   │   ├── layout.tsx              # Dashboard layout (if present)
+│   │   └── page.tsx                # Main dashboard page (client)
+│   ├── login/
+│   │   └── page.tsx                # Login page (client)
+│   └── middleware.ts               # Route protection middleware
 ├── components/
+│   ├── auth-provider.tsx           # Authentication context provider
+│   ├── error-boundary.tsx          # Error boundary component
 │   ├── dashboard/
-│   │   ├── employee-dashboard.tsx    # Employee view
-│   │   ├── management-dashboard.tsx  # Management view
-│   │   └── export-dialog.tsx         # Export UI
-│   └── ui/                   # Reusable UI components
+│   │   ├── employee-dashboard.tsx
+│   │   ├── management-dashboard.tsx
+│   │   ├── attendance-history.tsx
+│   │   ├── notes-section.tsx
+│   │   └── export-dialog.tsx
+│   └── ui/                         # Reusable UI components (shadcn/ui)
+│       ├── button.tsx
+│       ├── input.tsx
+│       ├── label.tsx
+│       └── ...etc
 ├── lib/
 │   ├── firebase/
-│   │   └── admin.ts          # Firebase Admin SDK
-│   ├── auth.ts               # Authentication helpers
-│   ├── utils.ts              # Utility functions
-│   └── export-utils.ts       # Export formatting
+│   │   ├── admin.ts                # Firebase Admin SDK (server)
+│   │   └── client.ts               # Firebase JS SDK (client)
+│   ├── auth.ts                     # Authentication helpers
+│   ├── utils.ts                    # Generic utilities
+│   └── export-utils.ts             # Helpers for exporting data
 ├── types/
-│   └── index.ts              # TypeScript type definitions
-└── middleware.ts             # Route protection
-```
+│   └── index.ts                    # TypeScript type definitions & interfaces
+├── public/                         # Static assets (icons, images, etc)
+├── .env.example                    # Example environment variables
+├── package.json
+└── README.md
 
 ### Database Schema
 
@@ -128,24 +129,6 @@ employee-portal/
 - `attendance` - Daily attendance records (ID: `{employeeId}_{YYYY-MM-DD}`)
 - `notes` - Management notes for employees
 - `compensation` - Employee compensation details
-
-## 🧪 Testing
-
-### Manual Testing
-Follow the comprehensive testing guide in [TESTING_GUIDE.md](./TESTING_GUIDE.md)
-
-### Quick Test
-```bash
-# 1. Start the server
-npm run dev
-
-# 2. Open browser to http://localhost:3000
-
-# 3. Test employee login
-# 4. Test clock in/out
-# 5. Test management dashboard
-# 6. Test export features
-```
 
 ## 🔐 Security
 
@@ -166,15 +149,6 @@ npm run dev
 - Notes System
 - Analytics & Reporting
 - Export Functionality
-
-### Enhancements: Optional
-See [ENHANCEMENTS_GUIDE.md](./ENHANCEMENTS_GUIDE.md) for:
-- Attendance status badges
-- Better empty states
-- Confirmation dialogs
-- Loading indicators
-- Auto-refresh
-- And more...
 
 ## 🚀 Deployment
 
@@ -229,21 +203,6 @@ firebase deploy --only hosting
 - Verify data exists in Firestore
 - Ensure recharts is installed
 
-See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for more troubleshooting.
-
-## 📞 Support
-
-### Documentation
-- [Quick Start Guide](./QUICK_START.md)
-- [Testing Guide](./TESTING_GUIDE.md)
-- [System Analysis](./SYSTEM_ANALYSIS.md)
-- [Enhancements Guide](./ENHANCEMENTS_GUIDE.md)
-
-### Firebase Console
-- [Firestore Database](https://console.firebase.google.com)
-- [Authentication](https://console.firebase.google.com)
-- [Functions](https://console.firebase.google.com)
-
 ## 🤝 Contributing
 
 ### Development Workflow
@@ -256,7 +215,6 @@ See [TESTING_GUIDE.md](./TESTING_GUIDE.md) for more troubleshooting.
 - Use TypeScript for all new code
 - Follow existing code patterns
 - Add comments for complex logic
-- Update documentation as needed
 
 ## 📝 License
 
@@ -275,7 +233,7 @@ Built with:
 
 **Current Version:** 1.0.0  
 **Status:** ✅ Production Ready (95% complete)  
-**Last Updated:** January 20, 2026
+**Last Updated:** January 22, 2026
 
 ### Completion Metrics
 - **Core Features:** 100% ✅
@@ -288,12 +246,6 @@ Built with:
 2. Apply recommended enhancements
 3. User acceptance testing
 4. Deploy to production
-
-## 🔗 Quick Links
-
-- **Development Server:** http://localhost:3000
-- **Firebase Console:** https://console.firebase.google.com
-- **Documentation:** See `/docs` folder
 
 ## 💡 Tips
 
@@ -318,10 +270,6 @@ The system is working correctly when:
 ✅ Charts render with accurate data  
 ✅ No console errors  
 ✅ Fast load times (< 3s)
-
----
-
-**Ready to get started?** Read [QUICK_START.md](./QUICK_START.md) for immediate next steps!
 
 ---
 
