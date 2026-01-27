@@ -12,6 +12,10 @@ export async function updateAttendance(
     clockIn?: string;
     clockOut?: string;
     breaks?: BreakRecord[];
+    payrollId?: string;
+    noShowReason?: string;
+    employeeNote?: string;
+    managerNote?: string;
   },
   editedBy: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -38,6 +42,22 @@ export async function updateAttendance(
 
     if (updates.breaks) {
       updateData.breaks = updates.breaks;
+    }
+
+    if (updates.payrollId !== undefined) {
+      updateData.payrollId = updates.payrollId || null;
+    }
+
+    if (updates.noShowReason !== undefined) {
+      updateData.noShowReason = updates.noShowReason || null;
+    }
+
+    if (updates.employeeNote !== undefined) {
+      updateData.employeeNote = updates.employeeNote || null;
+    }
+
+    if (updates.managerNote !== undefined) {
+      updateData.managerNote = updates.managerNote || null;
     }
 
     // Recalculate total hours if both clock in and out exist
@@ -91,8 +111,14 @@ export async function getAttendanceByDate(
         startTime: b.startTime,
         endTime: b.endTime,
         duration: b.duration,
+        type: b.type,
+        isPaid: b.isPaid,
       })),
       totalHours: data?.totalHours,
+      payrollId: data?.payrollId,
+      noShowReason: data?.noShowReason,
+      employeeNote: data?.employeeNote,
+      managerNote: data?.managerNote,
       editedBy: data?.editedBy,
       editedAt: data?.editedAt?.toDate().toISOString(),
       isEditedByManagement: data?.isEditedByManagement || false,

@@ -109,3 +109,79 @@ ${record.isEditedByManagement ? 'Edited by Management' : ''}
   return output;
 }
 
+// Timecard calculation utilities
+export function calculateRegularHours(totalHours: number, otThreshold: number = 8): number {
+  return Math.min(totalHours, otThreshold);
+}
+
+export function calculateOTHours(totalHours: number, otThreshold: number = 8): number {
+  return Math.max(0, totalHours - otThreshold);
+}
+
+export function calculateUnpaidBreaks(breaks: Array<{ isPaid?: boolean; duration?: number }>): number {
+  let unpaidMinutes = 0;
+  breaks.forEach(breakRecord => {
+    if (breakRecord.isPaid === false && breakRecord.duration) {
+      unpaidMinutes += breakRecord.duration;
+    }
+  });
+  return Math.round((unpaidMinutes / 60) * 100) / 100; // Convert to hours, round to 2 decimals
+}
+
+export function calculateTotalPaidHours(totalHours: number, unpaidBreaks: number): number {
+  return Math.max(0, totalHours - unpaidBreaks);
+}
+
+export function calculateEstimatedWages(
+  regularHours: number,
+  otHours: number,
+  hourlyRate?: number,
+  otMultiplier: number = 1.5
+): number {
+  if (!hourlyRate) return 0;
+  const regularWages = regularHours * hourlyRate;
+  const otWages = otHours * hourlyRate * otMultiplier;
+  return Math.round((regularWages + otWages) * 100) / 100;
+}
+
+export function formatBreakLength(breakRecord: { startTime: string; endTime?: string; duration?: number }): string {
+  if (breakRecord.duration !== undefined) {
+    const hours = Math.floor(breakRecord.duration / 60);
+    const minutes = breakRecord.duration % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}min`;
+    }
+    return `${minutes} min`;
+  }
+  if (breakRecord.endTime) {
+    const start = new Date(breakRecord.startTime).getTime();
+    const end = new Date(breakRecord.endTime).getTime();
+    const minutes = Math.round((end - start) / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) {
+      return `${hours}h ${mins}min`;
+    }
+    return `${mins} min`;
+  }
+  return '';
+}
+
+export function formatBreakType(breakRecord: { type?: string; isPaid?: boolean; duration?: number }): string {
+  if (breakRecord.type) {
+    return breakRecord.type;
+  }
+  // Generate default break type based on duration and paid status
+  if (breakRecord.duration !== undefined) {
+    const paidStatus = breakRecord.isPaid ? 'Paid' : 'Unpaid';
+    if (breakRecord.duration <= 15) {
+      return `${breakRecord.duration} min - ${paidStatus}`;
+    } else if (breakRecord.duration <= 30) {
+      return `30 min - ${paidStatus}`;
+    } else {
+      return `Lunch - ${paidStatus}`;
+    }
+  }
+  return '';
+}
+

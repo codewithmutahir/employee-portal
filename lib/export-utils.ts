@@ -1,4 +1,13 @@
 import { Employee, AttendanceRecord, Compensation } from '@/types';
+import {
+  calculateRegularHours,
+  calculateOTHours,
+  calculateUnpaidBreaks,
+  calculateTotalPaidHours,
+  calculateEstimatedWages,
+  formatBreakLength,
+  formatBreakType,
+} from '@/lib/utils';
 
 interface EmployeeExportData {
   employee: Employee;
@@ -179,6 +188,205 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
       
       csv += `"${employee.displayName}",${date},"${clockIn}","${clockOut}",${hours},${breaks}\n`;
     });
+  });
+  
+  return csv;
+}
+
+/**
+ * Formats employee data as a timecard CSV matching the standard timecard format
+ * Each row represents one day's attendance record
+ */
+export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): string {
+  const { employee, compensation, attendance } = data;
+  
+  // Get hourly rate (use hourlyRate if available, otherwise calculate from salary assuming 40h/week)
+  const hourlyRate = compensation?.hourlyRate || 
+    (compensation?.salary ? compensation.salary / (40 * 52) : undefined);
+  
+  // CSV Header
+  const headers = [
+    'Name',
+    'Clock in date',
+    'Clock in time',
+    'Clock out date',
+    'Clock out time',
+    'Break start',
+    'Break end',
+    'Break length',
+    'Break type',
+    'Payroll ID',
+    'Role',
+    'Wage rate',
+    'Actual hours',
+    'Total paid hours',
+    'Regular hours',
+    'Unpaid breaks',
+    'OT hours',
+    'Estimated wages',
+    'No show reason',
+    'Employee note',
+    'Manager note'
+  ];
+  
+  let csv = headers.join(',') + '\n';
+  
+  // Sort attendance by date
+  const sortedAttendance = [...attendance].sort((a, b) => 
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+  
+  // Process each attendance record
+  sortedAttendance.forEach((record) => {
+    const clockInDate = record.clockIn ? new Date(record.clockIn) : null;
+    const clockOutDate = record.clockOut ? new Date(record.clockOut) : null;
+    
+    // Format dates
+    const clockInDateStr = clockInDate 
+      ? clockInDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    const clockInTimeStr = clockInDate 
+      ? clockInDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+      : '';
+    const clockOutDateStr = clockOutDate 
+      ? clockOutDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : '';
+    const clockOutTimeStr = clockOutDate 
+      ? clockOutDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+      : '';
+    
+    // Get first break (or empty if no breaks)
+    const firstBreak = record.breaks && record.breaks.length > 0 ? record.breaks[0] : null;
+    const breakStartStr = firstBreak && firstBreak.startTime
+      ? new Date(firstBreak.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+      : '';
+    const breakEndStr = firstBreak && firstBreak.endTime
+      ? new Date(firstBreak.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+      : '';
+    const breakLengthStr = firstBreak ? formatBreakLength(firstBreak) : '';
+    const breakTypeStr = firstBreak ? formatBreakType(firstBreak) : '';
+    
+    // Calculate hours
+    const actualHours = record.totalHours || 0;
+    const unpaidBreaks = calculateUnpaidBreaks(record.breaks || []);
+    const totalPaidHours = calculateTotalPaidHours(actualHours, unpaidBreaks);
+    const regularHours = calculateRegularHours(totalPaidHours);
+    const otHours = calculateOTHours(totalPaidHours);
+    const estimatedWages = calculateEstimatedWages(regularHours, otHours, hourlyRate);
+    
+    // Format wage rate
+    const wageRateStr = hourlyRate ? `$${hourlyRate.toFixed(2)}` : '$0.00';
+    
+    // Build row
+    const row = [
+      `"${employee.displayName || ''}"`,
+      `"${clockInDateStr}"`,
+      `"${clockInTimeStr}"`,
+      `"${clockOutDateStr}"`,
+      `"${clockOutTimeStr}"`,
+      `"${breakStartStr}"`,
+      `"${breakEndStr}"`,
+      `"${breakLengthStr}"`,
+      `"${breakTypeStr}"`,
+      `"${record.payrollId || ''}"`,
+      `"${employee.position || employee.role || ''}"`,
+      `"${wageRateStr}"`,
+      actualHours.toFixed(2),
+      totalPaidHours.toFixed(2),
+      regularHours.toFixed(2),
+      unpaidBreaks.toFixed(2),
+      otHours.toFixed(2),
+      `"$${estimatedWages.toFixed(2)}"`,
+      `"${record.noShowReason || ''}"`,
+      `"${record.employeeNote || ''}"`,
+      `"${record.managerNote || ''}"`
+    ];
+    
+    csv += row.join(',') + '\n';
+  });
+  
+  // Add totals row
+  const totalActualHours = sortedAttendance.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+  const totalUnpaidBreaks = sortedAttendance.reduce((sum, r) => 
+    sum + calculateUnpaidBreaks(r.breaks || []), 0
+  );
+  const totalPaidHours = sortedAttendance.reduce((sum, r) => 
+    sum + calculateTotalPaidHours(r.totalHours || 0, calculateUnpaidBreaks(r.breaks || [])), 0
+  );
+  const totalRegularHours = sortedAttendance.reduce((sum, r) => 
+    sum + calculateRegularHours(calculateTotalPaidHours(r.totalHours || 0, calculateUnpaidBreaks(r.breaks || []))), 0
+  );
+  const totalOTHours = sortedAttendance.reduce((sum, r) => 
+    sum + calculateOTHours(calculateTotalPaidHours(r.totalHours || 0, calculateUnpaidBreaks(r.breaks || []))), 0
+  );
+  const totalEstimatedWages = calculateEstimatedWages(totalRegularHours, totalOTHours, hourlyRate);
+  
+  const totalsRow = [
+    `"Totals for ${employee.displayName || ''}"`,
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    '""',
+    totalActualHours.toFixed(2),
+    totalPaidHours.toFixed(2),
+    totalRegularHours.toFixed(2),
+    totalUnpaidBreaks.toFixed(2),
+    totalOTHours.toFixed(2),
+    `"$${totalEstimatedWages.toFixed(2)}"`,
+    '""',
+    '""',
+    '""'
+  ];
+  
+  csv += totalsRow.join(',') + '\n';
+  
+  return csv;
+}
+
+/**
+ * Formats all employees data as timecard CSV with all employees' records
+ */
+export function formatAllEmployeesDataAsTimecardCSV(data: EmployeeExportData[]): string {
+  // CSV Header
+  const headers = [
+    'Name',
+    'Clock in date',
+    'Clock in time',
+    'Clock out date',
+    'Clock out time',
+    'Break start',
+    'Break end',
+    'Break length',
+    'Break type',
+    'Payroll ID',
+    'Role',
+    'Wage rate',
+    'Actual hours',
+    'Total paid hours',
+    'Regular hours',
+    'Unpaid breaks',
+    'OT hours',
+    'Estimated wages',
+    'No show reason',
+    'Employee note',
+    'Manager note'
+  ];
+  
+  let csv = headers.join(',') + '\n';
+  
+  // Process each employee
+  data.forEach((employeeData) => {
+    const employeeCSV = formatEmployeeDataAsTimecardCSV(employeeData);
+    // Remove header from employee CSV and add rows
+    const rows = employeeCSV.split('\n').slice(1).filter(row => row.trim() !== '');
+    csv += rows.join('\n') + '\n';
   });
   
   return csv;

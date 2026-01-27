@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { exportEmployeeData, exportAllEmployeesData } from '@/app/actions/export';
-import { formatEmployeeDataForPrint, formatEmployeeDataAsCSV, formatAllEmployeesDataAsCSV } from '@/lib/export-utils';
+import { formatEmployeeDataForPrint, formatEmployeeDataAsCSV, formatAllEmployeesDataAsCSV, formatEmployeeDataAsTimecardCSV, formatAllEmployeesDataAsTimecardCSV } from '@/lib/export-utils';
 import { useToast } from '@/components/ui/use-toast';
 import { Download, Printer, FileText, FileSpreadsheet } from 'lucide-react';
 
@@ -40,8 +40,8 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
       let mimeType: string;
 
       if (format === 'csv') {
-        formatted = formatEmployeeDataAsCSV(data);
-        filename = `${employeeName?.replace(/\s+/g, '_') || 'employee'}_report_${new Date().toISOString().split('T')[0]}.csv`;
+        formatted = formatEmployeeDataAsTimecardCSV(data);
+        filename = `${employeeName?.replace(/\s+/g, '_') || 'employee'}_timecard_${new Date().toISOString().split('T')[0]}.csv`;
         mimeType = 'text/csv';
       } else {
         formatted = formatEmployeeDataForPrint(data);
@@ -90,8 +90,8 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
       let mimeType: string;
 
       if (format === 'csv') {
-        formatted = formatAllEmployeesDataAsCSV(data);
-        filename = `all_employees_report_${new Date().toISOString().split('T')[0]}.csv`;
+        formatted = formatAllEmployeesDataAsTimecardCSV(data);
+        filename = `all_employees_timecard_${new Date().toISOString().split('T')[0]}.csv`;
         mimeType = 'text/csv';
       } else {
         formatted = '';

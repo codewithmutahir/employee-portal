@@ -16,6 +16,7 @@ import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
 import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
 
@@ -64,16 +65,19 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   // Compensation form state
   const [compForm, setCompForm] = useState({
     salary: '',
-    allowance: '',  
+    allowance: '',
     bonus: '',
     currency: 'USD',
+    hourlyRate: '',
   });
 
-  // Attendance edit form state
+  // Attendance edit form state (kept intentionally lightweight)
   const [attForm, setAttForm] = useState({
     date: new Date().toISOString().split('T')[0],
     clockIn: '',
     clockOut: '',
+    payrollId: '',
+    noShowReason: '',
   });
 
   // Note form state
@@ -129,6 +133,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           allowance: comp.allowance?.toString() || '',
           bonus: comp.bonus?.toString() || '',
           currency: comp.currency,
+          hourlyRate: comp.hourlyRate?.toString() || '',
         });
       }
     } catch (error: any) {
@@ -184,12 +189,16 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           date: att.date,
           clockIn: att.clockIn ? new Date(att.clockIn).toISOString().slice(0, 16) : '',
           clockOut: att.clockOut ? new Date(att.clockOut).toISOString().slice(0, 16) : '',
+          payrollId: att.payrollId || '',
+          noShowReason: att.noShowReason || '',
         });
       } else {
         setAttForm({
           date: attForm.date,
           clockIn: '',
           clockOut: '',
+          payrollId: '',
+          noShowReason: '',
         });
       }
     } catch (error) {
@@ -211,6 +220,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           allowance: compForm.allowance ? parseFloat(compForm.allowance) : undefined,
           bonus: compForm.bonus ? parseFloat(compForm.bonus) : undefined,
           currency: compForm.currency,
+          hourlyRate: compForm.hourlyRate ? parseFloat(compForm.hourlyRate) : undefined,
         },
         employee.id
       );
@@ -236,12 +246,16 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   async function handleSaveAttendance() {
     if (!selectedEmployee) return;
     try {
+      const breaks = attendance?.breaks || [];
       const result = await updateAttendance(
         selectedEmployee.id,
         attForm.date,
         {
           clockIn: attForm.clockIn || undefined,
           clockOut: attForm.clockOut || undefined,
+          breaks: breaks,
+          payrollId: attForm.payrollId || undefined,
+          noShowReason: attForm.noShowReason || undefined,
         },
         employee.id
       );
@@ -397,9 +411,19 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             </CardHeader>
             <CardContent>
               {employeesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <span className="ml-2">Loading employees...</span>
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="border rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-2 flex-1">
+                          <Skeleton className="h-5 w-32" />
+                          <Skeleton className="h-4 w-48" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                        <Skeleton className="h-6 w-16 rounded-full" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : filteredEmployees.length > 0 ? (
                 <div className="space-y-4">
@@ -679,6 +703,18 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         onChange={(e) => setCompForm({ ...compForm, bonus: e.target.value })}
                       />
                     </div>
+                    <div>
+                      <Label htmlFor="hourlyRate">Hourly Rate</Label>
+                      <Input
+                        id="hourlyRate"
+                        type="number"
+                        step="0.01"
+                        value={compForm.hourlyRate}
+                        onChange={(e) => setCompForm({ ...compForm, hourlyRate: e.target.value })}
+                        placeholder="e.g., 25.00"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Used for timecard wage calculations</p>
+                    </div>
                   </div>
                   <Button onClick={handleSaveCompensation}>Save Compensation</Button>
                 </CardContent>
@@ -731,6 +767,161 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <p className="font-medium">{attendance.totalHours} hrs</p>
                     </div>
                   )}
+                  <div>
+                    <Label htmlFor="payrollId">Payroll ID</Label>
+                    <Input
+                      id="payrollId"
+                      value={attForm.payrollId}
+                      onChange={(e) => setAttForm({ ...attForm, payrollId: e.target.value })}
+                      placeholder="Optional payroll identifier"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="noShowReason">No Show Reason</Label>
+                    <Input
+                      id="noShowReason"
+                      value={attForm.noShowReason}
+                      onChange={(e) => setAttForm({ ...attForm, noShowReason: e.target.value })}
+                      placeholder="Reason if employee did not show up"
+                    />
+                  </div>
+                  {/* Break Management */}
+                  {attendance && (
+                    <div className="border-t pt-4">
+                      <Label className="text-base font-semibold mb-2 block">Breaks</Label>
+                      {attendance.breaks && attendance.breaks.length > 0 ? (
+                        <div className="space-y-2">
+                          {attendance.breaks.map((breakRecord, index) => (
+                            <div key={index} className="border rounded p-3 space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs">Start Time</Label>
+                                  <Input
+                                    type="datetime-local"
+                                    value={breakRecord.startTime ? new Date(breakRecord.startTime).toISOString().slice(0, 16) : ''}
+                                    onChange={(e) => {
+                                      const updatedBreaks = [...(attendance.breaks || [])];
+                                      updatedBreaks[index] = {
+                                        ...breakRecord,
+                                        startTime: new Date(e.target.value).toISOString(),
+                                      };
+                                      setAttendance({ ...attendance, breaks: updatedBreaks });
+                                    }}
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">End Time</Label>
+                                  <Input
+                                    type="datetime-local"
+                                    value={breakRecord.endTime ? new Date(breakRecord.endTime).toISOString().slice(0, 16) : ''}
+                                    onChange={(e) => {
+                                      const updatedBreaks = [...(attendance.breaks || [])];
+                                      const endTime = e.target.value ? new Date(e.target.value).toISOString() : undefined;
+                                      const startTime = new Date(breakRecord.startTime).getTime();
+                                      const duration = endTime ? Math.round((new Date(endTime).getTime() - startTime) / (1000 * 60)) : undefined;
+                                      updatedBreaks[index] = {
+                                        ...breakRecord,
+                                        endTime,
+                                        duration,
+                                      };
+                                      setAttendance({ ...attendance, breaks: updatedBreaks });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs">Break Type</Label>
+                                  <Select
+                                    value={breakRecord.type || ''}
+                                    onValueChange={(value) => {
+                                      const updatedBreaks = [...(attendance.breaks || [])];
+                                      updatedBreaks[index] = {
+                                        ...breakRecord,
+                                        type: value,
+                                      };
+                                      setAttendance({ ...attendance, breaks: updatedBreaks });
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="10 min - Paid">10 min - Paid</SelectItem>
+                                      <SelectItem value="15 min - Paid">15 min - Paid</SelectItem>
+                                      <SelectItem value="30 min - Paid">30 min - Paid</SelectItem>
+                                      <SelectItem value="Lunch - Paid">Lunch - Paid</SelectItem>
+                                      <SelectItem value="10 min - Unpaid">10 min - Unpaid</SelectItem>
+                                      <SelectItem value="15 min - Unpaid">15 min - Unpaid</SelectItem>
+                                      <SelectItem value="30 min - Unpaid">30 min - Unpaid</SelectItem>
+                                      <SelectItem value="Lunch - Unpaid">Lunch - Unpaid</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Paid Status</Label>
+                                  <Select
+                                    value={breakRecord.isPaid === undefined ? '' : breakRecord.isPaid ? 'paid' : 'unpaid'}
+                                    onValueChange={(value) => {
+                                      const updatedBreaks = [...(attendance.breaks || [])];
+                                      updatedBreaks[index] = {
+                                        ...breakRecord,
+                                        isPaid: value === 'paid',
+                                      };
+                                      setAttendance({ ...attendance, breaks: updatedBreaks });
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select status" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="paid">Paid</SelectItem>
+                                      <SelectItem value="unpaid">Unpaid</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              {breakRecord.duration && (
+                                <p className="text-xs text-muted-foreground">Duration: {breakRecord.duration} minutes</p>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const updatedBreaks = attendance.breaks.filter((_, i) => i !== index);
+                                  setAttendance({ ...attendance, breaks: updatedBreaks });
+                                }}
+                              >
+                                Remove Break
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No breaks recorded</p>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          const newBreak = {
+                            startTime: new Date().toISOString(),
+                            type: '',
+                            isPaid: true,
+                          };
+                          setAttendance({
+                            ...attendance!,
+                            breaks: [...(attendance?.breaks || []), newBreak],
+                          });
+                        }}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Break
+                      </Button>
+                    </div>
+                  )}
+                  
                   <div className="flex gap-2">
                     <Button onClick={loadAttendance} variant="outline">Load</Button>
                     <Button onClick={handleSaveAttendance}>Save Attendance</Button>
@@ -738,13 +929,17 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 </CardContent>
               </Card>
 
-              {/* Notes */}
+              {/* Universal Notes */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <FileText className="mr-2 h-5 w-5" />
                     Notes
                   </CardTitle>
+                  <CardDescription>
+                    Use this single notes area for everything (attendance, performance, HR, etc.).
+                    Internal notes stay management-only; other notes are visible to the employee.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -878,14 +1073,62 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         </Card>
 
         {reportsLoading ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                <span>Loading reports...</span>
-              </div>
-            </CardContent>
-          </Card>
+          <>
+            {/* Overall Statistics Skeleton */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardHeader>
+                    <Skeleton className="h-6 w-32" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-8 w-16 mb-2" />
+                    <Skeleton className="h-4 w-24" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Department Stats Skeleton */}
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-6 w-40" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-5 w-16" />
+                      </div>
+                      <Skeleton className="h-2 w-full" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Charts Skeleton */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-6 w-48" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-64 w-full" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-6 w-40" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-64 w-full" />
+                </CardContent>
+              </Card>
+            </div>
+          </>
         ) : (
           <>
 

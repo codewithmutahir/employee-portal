@@ -35,6 +35,7 @@ export interface Compensation {
   currency: string;
   updatedAt: string; // ISO date string
   updatedBy: string; // User ID
+  hourlyRate?: number; // Hourly wage rate for timecard calculations
 }
 
 export interface AttendanceRecord {
@@ -50,12 +51,18 @@ export interface AttendanceRecord {
   isEditedByManagement: boolean;
   createdAt: string; // ISO timestamp
   updatedAt: string; // ISO timestamp
+  payrollId?: string; // Payroll identifier
+  noShowReason?: string; // Reason for no-show
+  employeeNote?: string; // Note from employee
+  managerNote?: string; // Note from manager
 }
 
 export interface BreakRecord {
   startTime: string; // ISO timestamp
   endTime?: string; // ISO timestamp
   duration?: number; // minutes
+  type?: string; // e.g., "10 min - Paid", "30 min - Unpaid", "Lunch - Unpaid"
+  isPaid?: boolean; // Whether the break is paid
 }
 
 export interface Note {
