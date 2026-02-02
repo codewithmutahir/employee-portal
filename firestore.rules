@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to get user's employee record (only for their own record)
+    function getUserEmployee() {
+      return get(/databases/$(database)/documents/employees/$(request.auth.uid)).data;
+    }
+
+    // Helper function to check if user is management (only works for own record)
+    function isManagement() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+        getUserEmployee().role == 'management';
+    }
+
+    // Helper function to check if user is active (only works for own record)
+    function isActive() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+        getUserEmployee().status == 'active';
+    }
+
+    // Employees collection
+    match /employees/{employeeId} {
+      // Allow management to list all active employees (for dashboard display)
+      allow list: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'management';
+
+      // Employees can read their own record
+      // Management can read any employee record (for individual fetches)
+      allow get: if isAuthenticated() && (
+        request.auth.uid == employeeId || 
+        (exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'management')
+      );
+      
+      // Only management can create/update/delete employees
+      allow write: if isAuthenticated() && 
+        exists(/databases/$(database)/documents/employees/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.role == 'management';
+    }
+
+    // Attendance collection
+    match /attendance/{attendanceId} {
+      // Employees can read their own attendance
+      // Management can read all attendance
+      allow read: if isAuthenticated() && isActive() && 
+        (resource.data.employeeId == request.auth.uid || isManagement());
+      
+      // Employees can only create/update today's attendance
+      // Management can create/update any attendance
+      allow create: if isAuthenticated() && isActive() && (
+        (resource.data.employeeId == request.auth.uid && 
+         resource.data.date == request.time.toDate().toISOString().split('T')[0]) ||
+        isManagement()
+      );
+      
+      allow update: if isAuthenticated() && isActive() && (
+        (resource.data.employeeId == request.auth.uid && 
+         resource.data.date == request.time.toDate().toISOString().split('T')[0] &&
+         !resource.data.isEditedByManagement) ||
+        isManagement()
+      );
+      
+      // Only management can delete attendance
+      allow delete: if isManagement();
+    }
+
+    // Compensation collection
+    match /compensation/{employeeId} {
+      // Employees can read their own compensation
+      // Management can read all compensation
+      allow read: if isAuthenticated() && isActive() && 
+        (request.auth.uid == employeeId || isManagement());
+      
+      // Only management can write compensation
+      allow write: if isManagement();
+    }
+
+    // Employee face descriptors (used for facial recognition clock in/out)
+    // Server actions use Admin SDK and bypass these rules; these apply to client access if any
+    match /employee_faces/{employeeId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == employeeId;
+    }
+
+    // Notes collection
+    match /notes/{noteId} {
+      // Employees can read non-internal notes for themselves
+      // Management can read all notes
+      allow read: if isAuthenticated() && isActive() && (
+        (resource.data.employeeId == request.auth.uid && 
+         (!resource.data.isInternal || isManagement())) ||
+        isManagement()
+      );
+      
+      // Only management can create notes
+      allow create: if isManagement();
+      
+      // Only management can update/delete notes
+      allow update, delete: if isManagement();
+    }
+  }
+}
+
