@@ -9,13 +9,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee } from '@/app/actions/employees';
+import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee } from '@/app/actions/employees';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
@@ -98,6 +98,23 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     hireDate: new Date().toISOString().split('T')[0],
   });
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
+
+  // Edit Employee state
+  const [editEmployeeDialogOpen, setEditEmployeeDialogOpen] = useState(false);
+  const [editEmployeeForm, setEditEmployeeForm] = useState({
+    displayName: '',
+    email: '',
+    department: '',
+    position: '',
+    phoneNumber: '',
+    dateOfBirth: '',
+    hireDate: '',
+  });
+  const [editEmployeeLoading, setEditEmployeeLoading] = useState(false);
+
+  // Delete Employee state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   async function loadEmployees() {
     setEmployeesLoading(true);
@@ -458,6 +475,138 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     }
   }
 
+  // Open edit dialog with current employee data
+  function openEditDialog() {
+    if (!selectedEmployee) return;
+    
+    setEditEmployeeForm({
+      displayName: selectedEmployee.displayName || '',
+      email: selectedEmployee.email || '',
+      department: selectedEmployee.department || '',
+      position: selectedEmployee.position || '',
+      phoneNumber: selectedEmployee.phoneNumber || '',
+      dateOfBirth: selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '',
+      hireDate: selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '',
+    });
+    setEditEmployeeDialogOpen(true);
+  }
+
+  async function handleEditEmployee() {
+    if (!selectedEmployee) return;
+    
+    setEditEmployeeLoading(true);
+    try {
+      // Build updates object with only changed fields
+      const updates: any = {};
+      
+      if (editEmployeeForm.displayName !== selectedEmployee.displayName) {
+        updates.displayName = editEmployeeForm.displayName;
+      }
+      if (editEmployeeForm.email !== selectedEmployee.email) {
+        updates.email = editEmployeeForm.email;
+      }
+      if (editEmployeeForm.department !== (selectedEmployee.department || '')) {
+        updates.department = editEmployeeForm.department || null;
+      }
+      if (editEmployeeForm.position !== (selectedEmployee.position || '')) {
+        updates.position = editEmployeeForm.position || null;
+      }
+      if (editEmployeeForm.phoneNumber !== (selectedEmployee.phoneNumber || '')) {
+        updates.phoneNumber = editEmployeeForm.phoneNumber || null;
+      }
+      
+      // Handle date fields
+      const currentDob = selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '';
+      if (editEmployeeForm.dateOfBirth !== currentDob) {
+        updates.dateOfBirth = editEmployeeForm.dateOfBirth || null;
+      }
+      
+      const currentHireDate = selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '';
+      if (editEmployeeForm.hireDate !== currentHireDate) {
+        updates.hireDate = editEmployeeForm.hireDate;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        toast({
+          title: 'No changes',
+          description: 'No changes were made to the employee details',
+        });
+        setEditEmployeeDialogOpen(false);
+        return;
+      }
+
+      const result = await updateEmployee(selectedEmployee.id, updates, employee.id);
+
+      if (result.success) {
+        toast({
+          title: 'Employee Updated',
+          description: `${editEmployeeForm.displayName}'s details have been updated`,
+        });
+
+        // Update local state
+        const updatedEmployee = {
+          ...selectedEmployee,
+          ...updates,
+        };
+        setSelectedEmployee(updatedEmployee);
+        setEmployees(employees.map(emp =>
+          emp.id === selectedEmployee.id ? updatedEmployee : emp
+        ));
+
+        setEditEmployeeDialogOpen(false);
+      } else {
+        toast({
+          title: 'Update Failed',
+          description: result.error || 'Failed to update employee',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setEditEmployeeLoading(false);
+    }
+  }
+
+  async function handleDeleteEmployee() {
+    if (!selectedEmployee) return;
+    
+    setDeleteLoading(true);
+    try {
+      const result = await deleteEmployee(selectedEmployee.id, employee.id, true);
+
+      if (result.success) {
+        toast({
+          title: 'Employee Deleted',
+          description: `${selectedEmployee.displayName} has been permanently removed from the system`,
+        });
+
+        // Remove from local state
+        setEmployees(employees.filter(emp => emp.id !== selectedEmployee.id));
+        setSelectedEmployee(null);
+        setDeleteDialogOpen(false);
+      } else {
+        toast({
+          title: 'Delete Failed',
+          description: result.error || 'Failed to delete employee',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -667,7 +816,60 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <CardTitle>{selectedEmployee.displayName}</CardTitle>
                       <CardDescription>{selectedEmployee.email}</CardDescription>
                     </div>
-                    <ExportDialog employeeId={selectedEmployee.id} employeeName={selectedEmployee.displayName} />
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={openEditDialog}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </Button>
+                      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Remove
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Employee Permanently</AlertDialogTitle>
+                            <AlertDialogDescription className="space-y-2">
+                              <p>Are you sure you want to <strong>permanently delete</strong> {selectedEmployee.displayName}?</p>
+                              <p className="text-red-600 font-medium">This action cannot be undone!</p>
+                              <p>This will:</p>
+                              <ul className="list-disc list-inside text-sm">
+                                <li>Delete the employee account</li>
+                                <li>Remove their compensation records</li>
+                                <li>Delete their face registration data</li>
+                                <li>Remove all notes about this employee</li>
+                              </ul>
+                              <p className="text-sm text-muted-foreground mt-2">
+                                Note: Attendance records will be preserved for historical purposes.
+                              </p>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+                            <Button
+                              variant="destructive"
+                              onClick={handleDeleteEmployee}
+                              disabled={deleteLoading}
+                            >
+                              {deleteLoading ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Deleting...
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete Permanently
+                                </>
+                              )}
+                            </Button>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                      <ExportDialog employeeId={selectedEmployee.id} employeeName={selectedEmployee.displayName} />
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -1578,6 +1780,127 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 <>
                   <Plus className="mr-2 h-4 w-4" />
                   Create Employee
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit Employee Dialog */}
+      <AlertDialog open={editEmployeeDialogOpen} onOpenChange={setEditEmployeeDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Edit Employee Details</AlertDialogTitle>
+            <AlertDialogDescription>
+              Update {selectedEmployee?.displayName}&apos;s information. Changes will be saved immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Display Name */}
+              <div>
+                <Label htmlFor="editDisplayName">Display Name *</Label>
+                <Input
+                  id="editDisplayName"
+                  value={editEmployeeForm.displayName}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, displayName: e.target.value })}
+                  placeholder="John Doe"
+                  required
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <Label htmlFor="editEmail">Email *</Label>
+                <Input
+                  id="editEmail"
+                  type="email"
+                  value={editEmployeeForm.email}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, email: e.target.value })}
+                  placeholder="employee@company.com"
+                  required
+                />
+                <p className="text-xs text-muted-foreground mt-1">Changing email will update login credentials</p>
+              </div>
+
+              {/* Department */}
+              <div>
+                <Label htmlFor="editDepartment">Department</Label>
+                <Input
+                  id="editDepartment"
+                  value={editEmployeeForm.department}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, department: e.target.value })}
+                  placeholder="e.g., Engineering, Sales"
+                  list="edit-departments-list"
+                />
+                <datalist id="edit-departments-list">
+                  {departments.map(dept => (
+                    <option key={dept} value={dept} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Position */}
+              <div>
+                <Label htmlFor="editPosition">Position</Label>
+                <Input
+                  id="editPosition"
+                  value={editEmployeeForm.position}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, position: e.target.value })}
+                  placeholder="e.g., Software Engineer"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div>
+                <Label htmlFor="editPhoneNumber">Phone Number</Label>
+                <Input
+                  id="editPhoneNumber"
+                  type="tel"
+                  value={editEmployeeForm.phoneNumber}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, phoneNumber: e.target.value })}
+                  placeholder="+1 (555) 123-4567"
+                />
+              </div>
+
+              {/* Hire Date */}
+              <div>
+                <Label htmlFor="editHireDate">Hire Date</Label>
+                <Input
+                  id="editHireDate"
+                  type="date"
+                  value={editEmployeeForm.hireDate}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, hireDate: e.target.value })}
+                />
+              </div>
+
+              {/* Date of Birth */}
+              <div className="md:col-span-2">
+                <Label htmlFor="editDateOfBirth">Date of Birth</Label>
+                <Input
+                  id="editDateOfBirth"
+                  type="date"
+                  value={editEmployeeForm.dateOfBirth}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, dateOfBirth: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={editEmployeeLoading}>Cancel</AlertDialogCancel>
+            <Button onClick={handleEditEmployee} disabled={editEmployeeLoading}>
+              {editEmployeeLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Save Changes
                 </>
               )}
             </Button>

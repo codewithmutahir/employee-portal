@@ -157,19 +157,114 @@ export async function createEmployee(
 
 export async function updateEmployee(
   employeeId: string,
-  updates: Partial<Employee>,
+  updates: Partial<Employee> & { 
+    dateOfBirth?: string; 
+    hireDate?: string;
+  },
   updatedBy: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    // Convert date strings to Firestore Timestamps if provided
+    const processedUpdates: any = { ...updates };
+    
+    if (updates.dateOfBirth) {
+      processedUpdates.dateOfBirth = Timestamp.fromDate(new Date(updates.dateOfBirth));
+    }
+    if (updates.hireDate) {
+      processedUpdates.hireDate = Timestamp.fromDate(new Date(updates.hireDate));
+    }
+    
     await adminDb.collection('employees').doc(employeeId).update({
-      ...updates,
+      ...processedUpdates,
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy,
     });
+
+    // If email or displayName changed, update Firebase Auth too
+    if (updates.email || updates.displayName) {
+      const authUpdates: any = {};
+      if (updates.email) authUpdates.email = updates.email;
+      if (updates.displayName) authUpdates.displayName = updates.displayName;
+      
+      try {
+        await adminAuth.updateUser(employeeId, authUpdates);
+      } catch (authError: any) {
+        console.warn('Failed to update Auth user:', authError.message);
+        // Don't fail the whole operation if Auth update fails
+      }
+    }
+
     return { success: true };
   } catch (error: any) {
     console.error('Update employee error:', error);
     return { success: false, error: error.message };
+  }
+}
+
+export async function deleteEmployee(
+  employeeId: string,
+  deletedBy: string,
+  deleteAuthUser: boolean = true
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get employee info first for logging
+    const employeeDoc = await adminDb.collection('employees').doc(employeeId).get();
+    if (!employeeDoc.exists) {
+      return { success: false, error: 'Employee not found' };
+    }
+    
+    const employeeData = employeeDoc.data();
+    console.log(`Deleting employee: ${employeeData?.displayName} (${employeeId}) by ${deletedBy}`);
+
+    // Delete related data in parallel
+    const deletePromises: Promise<any>[] = [];
+
+    // Delete compensation record
+    deletePromises.push(
+      adminDb.collection('compensation').doc(employeeId).delete().catch(() => {})
+    );
+
+    // Delete face descriptor
+    deletePromises.push(
+      adminDb.collection('faceDescriptors').doc(employeeId).delete().catch(() => {})
+    );
+
+    // Delete attendance records (optional - you might want to keep these for records)
+    // Uncomment if you want to delete attendance too:
+    // const attendanceSnapshot = await adminDb.collection('attendance')
+    //   .where('employeeId', '==', employeeId).get();
+    // attendanceSnapshot.docs.forEach(doc => {
+    //   deletePromises.push(doc.ref.delete());
+    // });
+
+    // Delete notes related to this employee
+    const notesSnapshot = await adminDb.collection('notes')
+      .where('employeeId', '==', employeeId).get();
+    notesSnapshot.docs.forEach(doc => {
+      deletePromises.push(doc.ref.delete());
+    });
+
+    // Wait for all related deletions
+    await Promise.all(deletePromises);
+
+    // Delete the employee document
+    await adminDb.collection('employees').doc(employeeId).delete();
+
+    // Delete Firebase Auth user if requested
+    if (deleteAuthUser) {
+      try {
+        await adminAuth.deleteUser(employeeId);
+        console.log(`Deleted Firebase Auth user: ${employeeId}`);
+      } catch (authError: any) {
+        // Log but don't fail if Auth user deletion fails
+        console.warn('Failed to delete Auth user:', authError.message);
+      }
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Delete employee error:', error);
+    return { success: false, error: error.message || 'Failed to delete employee' };
   }
 }
 
