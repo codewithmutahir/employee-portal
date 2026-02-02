@@ -96,22 +96,29 @@ export function FaceVerificationDialog({
         
         // Set step to camera to render video element
         setStep("camera");
-        setCameraReady(true);
         
-        // Wait for React to render the video element
-        await new Promise(resolve => setTimeout(resolve, 0));
+        // Wait for Dialog and video element to render (longer delay for Dialog mount)
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         console.log("🎥 Getting camera stream...");
         
-        // Check if video element is available
+        // Check if video element is available, retry if needed
+        let retries = 0;
+        while (!videoRef.current && retries < 10) {
+          console.log(`⏳ Waiting for video element... (attempt ${retries + 1}/10)`);
+          await new Promise(resolve => setTimeout(resolve, 100));
+          retries++;
+        }
+        
         if (!videoRef.current) {
-          console.error("❌ Video ref not available after render");
-          setError("Video element not ready");
+          console.error("❌ Video ref not available after multiple retries");
+          setError("Video element not ready. Please try closing and reopening the dialog.");
           setStep("error");
           return;
         }
         
         console.log("✅ Video element is ready");
+        setCameraReady(true);
         
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
