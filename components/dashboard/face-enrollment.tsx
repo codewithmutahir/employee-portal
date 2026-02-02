@@ -65,14 +65,21 @@ export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) 
     // Set camera active FIRST to ensure video element is rendered
     setCameraActive(true);
     
-    // Wait for React to render the video element
-    await new Promise(resolve => setTimeout(resolve, 0));
+    // Wait for React to render the video element (longer wait for safety)
+    await new Promise(resolve => setTimeout(resolve, 100));
     
     try {
-      // Double-check video element is available
+      // Check if video element is available, retry if needed
+      let retries = 0;
+      while (!videoRef.current && retries < 5) {
+        console.log(`⏳ Waiting for video element... (attempt ${retries + 1}/5)`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retries++;
+      }
+      
       if (!videoRef.current) {
-        console.error("❌ Video ref not available after render");
-        setError("Video element not ready. Please try again.");
+        console.error("❌ Video ref not available after multiple retries");
+        setError("Video element not ready. Please refresh the page and try again.");
         setCameraActive(false);
         return;
       }

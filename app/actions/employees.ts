@@ -2,7 +2,7 @@
 
 import { adminDb } from '@/lib/firebase/admin';
 import { adminAuth } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { Employee, Compensation } from '@/types';
 
 export async function getEmployee(employeeId: string): Promise<Employee | null> {
@@ -141,8 +141,8 @@ export async function createEmployee(
       department: data.department || null,
       position: data.position || null,
       phoneNumber: data.phoneNumber || null,
-      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-      hireDate: new Date(data.hireDate),
+      dateOfBirth: data.dateOfBirth ? Timestamp.fromDate(new Date(data.dateOfBirth)) : null,
+      hireDate: Timestamp.fromDate(new Date(data.hireDate)),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       createdBy,
