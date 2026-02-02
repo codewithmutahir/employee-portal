@@ -11,16 +11,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Eye } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 const MODELS_BASE = "/models";
 const FACE_MATCH_THRESHOLD = 0.6;
-// Blink detection thresholds - more lenient for better detection
-const EAR_CLOSED_THRESHOLD = 0.25;  // Increased from 0.2 - easier to detect closed eyes
-const EAR_OPEN_THRESHOLD = 0.28;    // Increased from 0.25 - easier to detect open eyes
-const BLINK_DETECTION_MS = 8000;    // Increased from 3000 - more time to blink
+// How long to hold face steady for verification (in ms)
+const HOLD_DURATION_MS = 2500;
 
-type Step = "loading" | "camera" | "position" | "blink" | "verifying" | "success" | "error";
+type Step = "loading" | "camera" | "detecting" | "verifying" | "success" | "error";
 
 interface FaceVerificationDialogProps {
   open: boolean;
@@ -42,60 +41,18 @@ export function FaceVerificationDialog({
   const [step, setStep] = useState<Step>("loading");
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
-  const [detectionStatus, setDetectionStatus] = useState<string>("Initializing...");
-  const [showManualVerify, setShowManualVerify] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState("Initializing...");
+  const [faceDetected, setFaceDetected] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceApiRef = useRef<typeof import("face-api.js") | null>(null);
   const modelsLoadedRef = useRef(false);
-  const blinkDetectedRef = useRef(false);
-  const earWasClosedRef = useRef(false);
-  const phaseRef = useRef<"position" | "blink">("position");
-  const { toast } = useToast();
+  const detectionStartTimeRef = useRef<number | null>(null);
+  const verifiedRef = useRef(false);
   
-  // Manual verify function - skip blink detection
-  const handleManualVerify = async () => {
-    const video = videoRef.current;
-    const faceapi = faceApiRef.current;
-    if (!video || !faceapi || !storedDescriptor) return;
-    
-    setVerifying(true);
-    setDetectionStatus("Verifying face manually...");
-    
-    try {
-      const det = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-      
-      if (!det) {
-        setError("No face detected. Please position your face in the frame.");
-        setStep("error");
-        return;
-      }
-      
-      const descriptor = Array.from(det.descriptor);
-      const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
-      console.log("📊 Manual verify - Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
-      
-      if (distance < FACE_MATCH_THRESHOLD) {
-        console.log("✅ Face matched via manual verify!");
-        setStep("success");
-        onVerified();
-        onOpenChange(false);
-      } else {
-        setStep("error");
-        setError(`Face did not match (distance: ${distance.toFixed(2)}). Please try again or re-register your face.`);
-      }
-    } catch (err: any) {
-      console.error("Manual verify error:", err);
-      setStep("error");
-      setError("Verification failed. Please try again.");
-    } finally {
-      setVerifying(false);
-    }
-  };
+  const { toast } = useToast();
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -105,24 +62,24 @@ export function FaceVerificationDialog({
     setCameraReady(false);
   }, []);
 
+  // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
       stopCamera();
       setStep("loading");
       setError(null);
       setCameraReady(false);
-      setDetectionStatus("Initializing...");
-      setShowManualVerify(false);
-      setVerifying(false);
-      blinkDetectedRef.current = false;
-      earWasClosedRef.current = false;
-      phaseRef.current = "position";
+      setProgress(0);
+      setStatusText("Initializing...");
+      setFaceDetected(false);
+      detectionStartTimeRef.current = null;
+      verifiedRef.current = false;
       return;
     }
 
     if (!storedDescriptor || storedDescriptor.length !== 128) {
       setStep("error");
-      setError("Face not registered. Please register your face first.");
+      setError("Face not registered. Please register your face first from the dashboard.");
       return;
     }
 
@@ -131,78 +88,44 @@ export function FaceVerificationDialog({
     async function init() {
       try {
         console.log("🚀 Initializing face verification...");
+        setStatusText("Loading face recognition...");
         
         const faceapi = await import("face-api.js");
         faceApiRef.current = faceapi;
-        console.log("✅ face-api.js loaded");
 
         if (!modelsLoadedRef.current) {
-          console.log("📦 Loading face detection models from:", MODELS_BASE);
-          
-          try {
-            await Promise.all([
-              faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
-              faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
-              faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
-            ]);
-            
-            // Verify models loaded
-            const modelsLoaded = 
-              faceapi.nets.tinyFaceDetector.isLoaded &&
-              faceapi.nets.faceLandmark68Net.isLoaded &&
-              faceapi.nets.faceRecognitionNet.isLoaded;
-            
-            console.log("📦 Models loaded status:", {
-              tinyFaceDetector: faceapi.nets.tinyFaceDetector.isLoaded,
-              faceLandmark68Net: faceapi.nets.faceLandmark68Net.isLoaded,
-              faceRecognitionNet: faceapi.nets.faceRecognitionNet.isLoaded,
-            });
-            
-            if (!modelsLoaded) {
-              throw new Error("One or more models failed to load");
-            }
-            
-            modelsLoadedRef.current = true;
-            console.log("✅ All models loaded successfully");
-          } catch (modelError: any) {
-            console.error("❌ Model loading error:", modelError);
-            throw new Error(`Failed to load face recognition models: ${modelError.message}. Check that /public/models folder exists with the required model files.`);
-          }
-        } else {
-          console.log("✅ Models already loaded (cached)");
+          console.log("📦 Loading models...");
+          await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
+            faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
+          ]);
+          modelsLoadedRef.current = true;
+          console.log("✅ Models loaded");
         }
 
         if (cancelled) return;
         
-        // Set step to camera to render video element
         setStep("camera");
+        setStatusText("Starting camera...");
         
-        // Wait for Dialog and video element to render (longer delay for Dialog mount)
+        // Wait for dialog to render
         await new Promise(resolve => setTimeout(resolve, 300));
-
-        console.log("🎥 Getting camera stream...");
         
-        // Check if video element is available, retry if needed
+        // Retry getting video element
         let retries = 0;
         while (!videoRef.current && retries < 10) {
-          console.log(`⏳ Waiting for video element... (attempt ${retries + 1}/10)`);
           await new Promise(resolve => setTimeout(resolve, 100));
           retries++;
         }
         
         if (!videoRef.current) {
-          console.error("❌ Video ref not available after multiple retries");
-          setError("Video element not ready. Please try closing and reopening the dialog.");
-          setStep("error");
-          return;
+          throw new Error("Camera not available. Please close and reopen.");
         }
-        
-        console.log("✅ Video element is ready");
         
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
         });
-        console.log("✅ Got media stream");
         
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -210,50 +133,28 @@ export function FaceVerificationDialog({
         }
         
         streamRef.current = stream;
-        
-        console.log("📹 Setting video srcObject");
         videoRef.current.srcObject = stream;
-        
-        // Ensure video element properties are set
         videoRef.current.muted = true;
         videoRef.current.playsInline = true;
         
-        // Now transition to position step and mark camera as ready
-        setStep("position");
-        setCameraReady(true);
-        console.log("✅ Camera ready, step set to position");
+        await new Promise<void>((resolve) => {
+          if (videoRef.current) {
+            videoRef.current.onloadedmetadata = () => resolve();
+          }
+        });
         
-        // Wait for video to be ready
-        try {
-          await new Promise<void>((resolve, reject) => {
-            const video = videoRef.current;
-            if (!video) {
-              reject(new Error("Video element lost"));
-              return;
-            }
-            
-            const timeout = setTimeout(() => {
-              reject(new Error("Video load timeout"));
-            }, 5000);
-            
-            video.onloadedmetadata = () => {
-              console.log("✅ Video metadata loaded, dimensions:", video.videoWidth, "x", video.videoHeight);
-              clearTimeout(timeout);
-              resolve();
-            };
-          });
-          
-          console.log("▶️ Playing video");
-          await videoRef.current.play();
-          console.log("✅ Video playing");
-        } catch (playError: any) {
-          console.error("❌ Video play error:", playError);
-          // Don't fail completely, detection loop might still work
-        }
+        await videoRef.current.play();
+        
+        setStep("detecting");
+        setCameraReady(true);
+        setStatusText("Position your face in the frame");
+        console.log("✅ Camera ready");
+        
       } catch (err: any) {
         if (!cancelled) {
+          console.error("❌ Init error:", err);
           setStep("error");
-          setError(err?.message || "Failed to load camera or models. Allow camera access and ensure models are in /public/models.");
+          setError(err?.message || "Failed to start camera. Please allow camera access.");
         }
       }
     }
@@ -265,186 +166,138 @@ export function FaceVerificationDialog({
     };
   }, [open, storedDescriptor, stopCamera]);
 
+  // Main detection loop
   useEffect(() => {
-    if (step !== "position" && step !== "blink") return;
+    if (step !== "detecting" || !cameraReady) return;
+    
     const video = videoRef.current;
+    const faceapi = faceApiRef.current;
     
-    console.log("🔍 Detection useEffect - checking conditions:", {
-      step,
-      hasVideo: !!video,
-      hasFaceApi: !!faceApiRef.current,
-      hasStream: !!streamRef.current,
-      hasDescriptor: !!storedDescriptor,
-      descriptorLength: storedDescriptor?.length,
-      cameraReady
-    });
-    
-    if (!video || !faceApiRef.current || !streamRef.current || !storedDescriptor || !cameraReady) {
-      console.log("❌ Detection conditions not met, returning early");
-      return;
-    }
-
-    console.log("✅ All detection conditions met, starting detection loop");
+    if (!video || !faceapi || !storedDescriptor) return;
 
     let rafId: number;
-    let blinkCheckStart: number | null = null;
-    let detectionCount = 0;
-
-    function eyeAspectRatio(eye: { x: number; y: number }[]) {
-      if (!eye || eye.length < 6) return 0.2;
-      const v1 = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
-      const v2 = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
-      const h = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
-      if (h === 0) return 0.2;
-      return (v1 + v2) / (2 * h);
-    }
+    let frameCount = 0;
 
     async function detect() {
-      const faceapi = faceApiRef.current;
+      if (verifiedRef.current) return;
+      
       const video = videoRef.current;
+      const faceapi = faceApiRef.current;
       if (!video || !faceapi || !storedDescriptor) return;
 
-      // Wait for video to be ready for processing
-      if (video.readyState < 2) {
-        if (detectionCount === 0) {
-          console.log("⏳ Waiting for video to be ready, readyState:", video.readyState);
-        }
-        rafId = requestAnimationFrame(detect);
-        return;
-      }
-
-      // Check video dimensions are valid
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-        if (detectionCount === 0) {
-          console.log("⏳ Waiting for valid video dimensions...");
-        }
+      // Wait for video to be ready
+      if (video.readyState < 2 || video.videoWidth === 0) {
         rafId = requestAnimationFrame(detect);
         return;
       }
 
       try {
-        detectionCount++;
-        if (detectionCount === 1) {
-          console.log(`🔄 First detection attempt - video state: ${video.readyState}, dimensions: ${video.videoWidth}x${video.videoHeight}`);
-          console.log("🔧 Using TinyFaceDetectorOptions: inputSize=320, scoreThreshold=0.3");
-          setDetectionStatus("Scanning for face...");
-        } else if (detectionCount % 30 === 0) {
-          console.log(`🔄 Detection attempt #${detectionCount}`);
-        }
-
+        frameCount++;
+        
         const det = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
+            inputSize: 320, 
+            scoreThreshold: 0.3 
+          }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
         if (!det) {
-          if (detectionCount % 60 === 0) {
-            console.log("👤 No face detected in frame (attempt", detectionCount, ")");
-            setDetectionStatus(`Searching... (${detectionCount} frames)`);
+          // No face detected - reset progress
+          setFaceDetected(false);
+          detectionStartTimeRef.current = null;
+          setProgress(0);
+          
+          if (frameCount % 30 === 0) {
+            setStatusText("Looking for your face...");
           }
+          
           rafId = requestAnimationFrame(detect);
           return;
         }
 
-        console.log("✅ Face detected! Score:", det.detection.score);
-        setDetectionStatus(`Face detected! Score: ${(det.detection.score * 100).toFixed(0)}%`);
-
-        if (phaseRef.current === "position") {
-          console.log("➡️ Moving to blink detection phase");
-          phaseRef.current = "blink";
-          setStep("blink");
-          blinkCheckStart = Date.now();
+        // Face detected!
+        setFaceDetected(true);
+        
+        // Start timer if not already started
+        if (!detectionStartTimeRef.current) {
+          detectionStartTimeRef.current = Date.now();
+          console.log("✅ Face detected, starting hold timer");
         }
-
-        if (phaseRef.current === "blink" && !blinkDetectedRef.current) {
-          const landmarks = det.landmarks as { getLeftEye: () => { x: number; y: number }[]; getRightEye: () => { x: number; y: number }[] };
-          const leftEye = landmarks.getLeftEye();
-          const rightEye = landmarks.getRightEye();
-          const earLeft = eyeAspectRatio(leftEye);
-          const earRight = eyeAspectRatio(rightEye);
-          const ear = (earLeft + earRight) / 2;
-
-          // Update status with current EAR value for debugging
-          const eyeStatus = ear < EAR_CLOSED_THRESHOLD ? "CLOSED" : "OPEN";
-          if (detectionCount % 10 === 0) {
-            setDetectionStatus(`Eyes: ${eyeStatus} (EAR: ${ear.toFixed(2)}) ${earWasClosedRef.current ? "- Blink started!" : "- Blink to verify"}`);
-          }
-
-          if (detectionCount % 30 === 0) {
-            console.log("👁️ Eye Aspect Ratio:", ear.toFixed(3), "| Status:", eyeStatus, "| eyeWasClosed:", earWasClosedRef.current);
-          }
-
-          if (ear < EAR_CLOSED_THRESHOLD) {
-            if (!earWasClosedRef.current) {
-              console.log("👁️ Eye closed detected! EAR:", ear.toFixed(3));
-              setDetectionStatus("Eyes closed detected! Now open your eyes...");
-            }
-            earWasClosedRef.current = true;
-          } else if (ear > EAR_OPEN_THRESHOLD && earWasClosedRef.current) {
-            console.log("✅ Blink detected! Verifying face...");
-            blinkDetectedRef.current = true;
-            setDetectionStatus("Blink detected! Verifying...");
-            setStep("verifying");
-
-            const descriptor = Array.from(det.descriptor);
-            const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
-            console.log("📊 Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
+        
+        const elapsed = Date.now() - detectionStartTimeRef.current;
+        const progressPercent = Math.min((elapsed / HOLD_DURATION_MS) * 100, 100);
+        setProgress(progressPercent);
+        
+        // Update status based on progress
+        if (progressPercent < 30) {
+          setStatusText("Face detected! Hold steady...");
+        } else if (progressPercent < 70) {
+          setStatusText("Keep holding...");
+        } else if (progressPercent < 100) {
+          setStatusText("Almost there...");
+        }
+        
+        // Check if we've held long enough
+        if (elapsed >= HOLD_DURATION_MS && !verifiedRef.current) {
+          verifiedRef.current = true;
+          setStatusText("Verifying identity...");
+          setStep("verifying");
+          
+          // Verify face match
+          const descriptor = Array.from(det.descriptor);
+          const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
+          console.log("📊 Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
+          
+          if (distance < FACE_MATCH_THRESHOLD) {
+            console.log("✅ Face matched!");
+            setStep("success");
+            setStatusText("Verified successfully!");
             
-            if (distance < FACE_MATCH_THRESHOLD) {
-              console.log("✅ Face matched! Clock in successful");
-              setStep("success");
+            // Brief delay before closing
+            setTimeout(() => {
               onVerified();
               onOpenChange(false);
-            } else {
-              console.log("❌ Face did not match. Distance too large.");
-              setStep("error");
-              setError("Face did not match. Please try again.");
-            }
+            }, 800);
+          } else {
+            console.log("❌ Face did not match. Distance:", distance);
+            setStep("error");
+            setError(`Face did not match your registered face. Please try again or re-register.`);
           }
-
-          // Don't timeout - instead let user try manual verify
-          const timeElapsed = blinkCheckStart ? Date.now() - blinkCheckStart : 0;
-          if (timeElapsed > BLINK_DETECTION_MS && !blinkDetectedRef.current) {
-            // After timeout, show manual verify option instead of error
-            setDetectionStatus("Having trouble? Try closing your eyes firmly then opening, or use the Verify button below.");
-          }
+          return;
         }
+        
       } catch (err: any) {
-        // Log errors instead of silently ignoring
-        if (detectionCount % 60 === 0) {
-          console.error("⚠️ Detection error:", err?.message || err);
+        if (frameCount % 60 === 0) {
+          console.error("Detection error:", err?.message);
         }
       }
+      
       rafId = requestAnimationFrame(detect);
     }
 
-    // Small delay to ensure video is playing
+    // Start detection
     setTimeout(() => {
-      console.log("🚀 Starting detection loop");
       rafId = requestAnimationFrame(detect);
     }, 100);
 
     return () => {
-      console.log("🛑 Stopping detection loop");
       cancelAnimationFrame(rafId);
     };
   }, [step, storedDescriptor, onVerified, onOpenChange, cameraReady]);
 
-  // Show manual verify button after 3 seconds in blink phase
-  useEffect(() => {
-    if (step === "blink") {
-      const timer = setTimeout(() => {
-        setShowManualVerify(true);
-      }, 3000);
-      return () => clearTimeout(timer);
-    } else {
-      setShowManualVerify(false);
-    }
-  }, [step]);
-
   const handleClose = () => {
     stopCamera();
     onOpenChange(false);
+  };
+
+  const handleRetry = () => {
+    setStep("detecting");
+    setError(null);
+    setProgress(0);
+    setStatusText("Position your face in the frame");
+    detectionStartTimeRef.current = null;
+    verifiedRef.current = false;
   };
 
   return (
@@ -454,76 +307,88 @@ export function FaceVerificationDialog({
           <DialogTitle>
             {actionType === "clockIn" ? "Clock In" : "Clock Out"} with Face
           </DialogTitle>
-          <DialogDescription>
-            {step === "loading" && "Loading camera and face recognition..."}
-            {step === "position" && "Position your face in the frame."}
-            {step === "blink" && (
-              <>
-                <span className="flex items-center gap-2">
-                  <Eye className="h-4 w-4" />
-                  Please blink once to verify you are live (not a photo).
-                </span>
-              </>
-            )}
-            {step === "verifying" && "Verifying your face..."}
-            {step === "success" && "Verified. Recording attendance."}
-            {step === "error" && (error || "Something went wrong.")}
-            {step === "camera" && "Starting camera..."}
+          <DialogDescription className="sr-only">
+            Face verification for attendance
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative flex justify-center rounded-lg overflow-hidden bg-muted aspect-video max-h-64">
+        {/* Video container */}
+        <div className="relative flex justify-center rounded-lg overflow-hidden bg-muted aspect-video">
           {step === "loading" && (
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
               <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">{statusText}</span>
             </div>
           )}
-          {(step === "camera" || step === "position" || step === "blink" || step === "verifying") && (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }}
-            />
+          
+          {(step === "camera" || step === "detecting" || step === "verifying") && (
+            <>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+              
+              {/* Face detection overlay */}
+              {step === "detecting" && (
+                <div className={`absolute inset-4 border-4 rounded-lg transition-colors duration-300 ${
+                  faceDetected 
+                    ? 'border-green-500' 
+                    : 'border-dashed border-white/50'
+                }`} />
+              )}
+              
+              {/* Verifying overlay */}
+              {step === "verifying" && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                  <Loader2 className="h-10 w-10 animate-spin text-white" />
+                </div>
+              )}
+            </>
           )}
+          
+          {step === "success" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-green-500/20">
+              <CheckCircle2 className="h-16 w-16 text-green-500" />
+              <span className="text-lg font-medium text-green-600">Verified!</span>
+            </div>
+          )}
+          
           {step === "error" && (
-            <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-destructive">
-              {error}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
+              <XCircle className="h-12 w-12 text-destructive" />
+              <span className="text-sm text-destructive">{error}</span>
             </div>
           )}
         </div>
         
-        {/* Detection status indicator */}
-        {(step === "position" || step === "blink") && (
+        {/* Progress bar and status */}
+        {step === "detecting" && (
+          <div className="space-y-2">
+            <Progress value={progress} className="h-2" />
+            <div className="flex items-center justify-center gap-2 text-sm">
+              <span className={`h-2 w-2 rounded-full ${faceDetected ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
+              <span className="text-muted-foreground">{statusText}</span>
+            </div>
+          </div>
+        )}
+        
+        {step === "verifying" && (
           <div className="text-center text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
-              {detectionStatus}
-            </span>
+            {statusText}
           </div>
         )}
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          {/* Manual verify button - appears after 3 seconds in blink phase */}
-          {step === "blink" && showManualVerify && (
-            <Button 
-              onClick={handleManualVerify} 
-              disabled={verifying}
-              className="w-full sm:w-auto"
-            >
-              {verifying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Verifying...
-                </>
-              ) : (
-                "Verify Now (Skip Blink)"
-              )}
+        <DialogFooter className="gap-2">
+          {step === "error" && (
+            <Button onClick={handleRetry} className="flex-1">
+              Try Again
             </Button>
           )}
-          <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={handleClose} className="flex-1">
             Cancel
           </Button>
         </DialogFooter>
