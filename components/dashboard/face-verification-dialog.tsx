@@ -15,9 +15,10 @@ import { Loader2, Eye } from "lucide-react";
 
 const MODELS_BASE = "/models";
 const FACE_MATCH_THRESHOLD = 0.6;
-const EAR_CLOSED_THRESHOLD = 0.2;
-const EAR_OPEN_THRESHOLD = 0.25;
-const BLINK_DETECTION_MS = 3000;
+// Blink detection thresholds - more lenient for better detection
+const EAR_CLOSED_THRESHOLD = 0.25;  // Increased from 0.2 - easier to detect closed eyes
+const EAR_OPEN_THRESHOLD = 0.28;    // Increased from 0.25 - easier to detect open eyes
+const BLINK_DETECTION_MS = 8000;    // Increased from 3000 - more time to blink
 
 type Step = "loading" | "camera" | "position" | "blink" | "verifying" | "success" | "error";
 
@@ -42,6 +43,8 @@ export function FaceVerificationDialog({
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [detectionStatus, setDetectionStatus] = useState<string>("Initializing...");
+  const [showManualVerify, setShowManualVerify] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceApiRef = useRef<typeof import("face-api.js") | null>(null);
@@ -50,6 +53,49 @@ export function FaceVerificationDialog({
   const earWasClosedRef = useRef(false);
   const phaseRef = useRef<"position" | "blink">("position");
   const { toast } = useToast();
+  
+  // Manual verify function - skip blink detection
+  const handleManualVerify = async () => {
+    const video = videoRef.current;
+    const faceapi = faceApiRef.current;
+    if (!video || !faceapi || !storedDescriptor) return;
+    
+    setVerifying(true);
+    setDetectionStatus("Verifying face manually...");
+    
+    try {
+      const det = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      
+      if (!det) {
+        setError("No face detected. Please position your face in the frame.");
+        setStep("error");
+        return;
+      }
+      
+      const descriptor = Array.from(det.descriptor);
+      const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
+      console.log("📊 Manual verify - Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
+      
+      if (distance < FACE_MATCH_THRESHOLD) {
+        console.log("✅ Face matched via manual verify!");
+        setStep("success");
+        onVerified();
+        onOpenChange(false);
+      } else {
+        setStep("error");
+        setError(`Face did not match (distance: ${distance.toFixed(2)}). Please try again or re-register your face.`);
+      }
+    } catch (err: any) {
+      console.error("Manual verify error:", err);
+      setStep("error");
+      setError("Verification failed. Please try again.");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -66,6 +112,8 @@ export function FaceVerificationDialog({
       setError(null);
       setCameraReady(false);
       setDetectionStatus("Initializing...");
+      setShowManualVerify(false);
+      setVerifying(false);
       blinkDetectedRef.current = false;
       earWasClosedRef.current = false;
       phaseRef.current = "position";
@@ -316,18 +364,26 @@ export function FaceVerificationDialog({
           const earRight = eyeAspectRatio(rightEye);
           const ear = (earLeft + earRight) / 2;
 
+          // Update status with current EAR value for debugging
+          const eyeStatus = ear < EAR_CLOSED_THRESHOLD ? "CLOSED" : "OPEN";
+          if (detectionCount % 10 === 0) {
+            setDetectionStatus(`Eyes: ${eyeStatus} (EAR: ${ear.toFixed(2)}) ${earWasClosedRef.current ? "- Blink started!" : "- Blink to verify"}`);
+          }
+
           if (detectionCount % 30 === 0) {
-            console.log("👁️ Eye Aspect Ratio:", ear.toFixed(3), "| Closed threshold:", EAR_CLOSED_THRESHOLD, "| eyeWasClosed:", earWasClosedRef.current);
+            console.log("👁️ Eye Aspect Ratio:", ear.toFixed(3), "| Status:", eyeStatus, "| eyeWasClosed:", earWasClosedRef.current);
           }
 
           if (ear < EAR_CLOSED_THRESHOLD) {
             if (!earWasClosedRef.current) {
-              console.log("👁️ Eye closed detected!");
+              console.log("👁️ Eye closed detected! EAR:", ear.toFixed(3));
+              setDetectionStatus("Eyes closed detected! Now open your eyes...");
             }
             earWasClosedRef.current = true;
           } else if (ear > EAR_OPEN_THRESHOLD && earWasClosedRef.current) {
             console.log("✅ Blink detected! Verifying face...");
             blinkDetectedRef.current = true;
+            setDetectionStatus("Blink detected! Verifying...");
             setStep("verifying");
 
             const descriptor = Array.from(det.descriptor);
@@ -346,10 +402,11 @@ export function FaceVerificationDialog({
             }
           }
 
-          if (blinkCheckStart && Date.now() - blinkCheckStart > BLINK_DETECTION_MS && !blinkDetectedRef.current) {
-            console.log("⏰ Blink timeout - no blink detected within", BLINK_DETECTION_MS, "ms");
-            setStep("error");
-            setError("Blink was not detected. Use a live face (not a photo) and blink once.");
+          // Don't timeout - instead let user try manual verify
+          const timeElapsed = blinkCheckStart ? Date.now() - blinkCheckStart : 0;
+          if (timeElapsed > BLINK_DETECTION_MS && !blinkDetectedRef.current) {
+            // After timeout, show manual verify option instead of error
+            setDetectionStatus("Having trouble? Try closing your eyes firmly then opening, or use the Verify button below.");
           }
         }
       } catch (err: any) {
@@ -372,6 +429,18 @@ export function FaceVerificationDialog({
       cancelAnimationFrame(rafId);
     };
   }, [step, storedDescriptor, onVerified, onOpenChange, cameraReady]);
+
+  // Show manual verify button after 3 seconds in blink phase
+  useEffect(() => {
+    if (step === "blink") {
+      const timer = setTimeout(() => {
+        setShowManualVerify(true);
+      }, 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowManualVerify(false);
+    }
+  }, [step]);
 
   const handleClose = () => {
     stopCamera();
@@ -436,8 +505,25 @@ export function FaceVerificationDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          {/* Manual verify button - appears after 3 seconds in blink phase */}
+          {step === "blink" && showManualVerify && (
+            <Button 
+              onClick={handleManualVerify} 
+              disabled={verifying}
+              className="w-full sm:w-auto"
+            >
+              {verifying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                "Verify Now (Skip Blink)"
+              )}
+            </Button>
+          )}
+          <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">
             Cancel
           </Button>
         </DialogFooter>
