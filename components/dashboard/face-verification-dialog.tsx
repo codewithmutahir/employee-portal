@@ -118,7 +118,6 @@ export function FaceVerificationDialog({
         }
         
         console.log("✅ Video element is ready");
-        setCameraReady(true);
         
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
@@ -139,8 +138,10 @@ export function FaceVerificationDialog({
         videoRef.current.muted = true;
         videoRef.current.playsInline = true;
         
-        // Now transition to position step
+        // Now transition to position step and mark camera as ready
         setStep("position");
+        setCameraReady(true);
+        console.log("✅ Camera ready, step set to position");
         
         // Wait for video to be ready
         try {
@@ -187,10 +188,27 @@ export function FaceVerificationDialog({
   useEffect(() => {
     if (step !== "position" && step !== "blink") return;
     const video = videoRef.current;
-    if (!video || !faceApiRef.current || !streamRef.current || !storedDescriptor || !cameraReady) return;
+    
+    console.log("🔍 Detection useEffect - checking conditions:", {
+      step,
+      hasVideo: !!video,
+      hasFaceApi: !!faceApiRef.current,
+      hasStream: !!streamRef.current,
+      hasDescriptor: !!storedDescriptor,
+      descriptorLength: storedDescriptor?.length,
+      cameraReady
+    });
+    
+    if (!video || !faceApiRef.current || !streamRef.current || !storedDescriptor || !cameraReady) {
+      console.log("❌ Detection conditions not met, returning early");
+      return;
+    }
+
+    console.log("✅ All detection conditions met, starting detection loop");
 
     let rafId: number;
     let blinkCheckStart: number | null = null;
+    let detectionCount = 0;
 
     function eyeAspectRatio(eye: { x: number; y: number }[]) {
       if (!eye || eye.length < 6) return 0.2;
@@ -203,20 +221,38 @@ export function FaceVerificationDialog({
 
     async function detect() {
       const faceapi = faceApiRef.current;
-      if (!videoRef.current || !faceapi || !storedDescriptor) return;
+      const video = videoRef.current;
+      if (!video || !faceapi || !storedDescriptor) return;
+
+      // Wait for video to be ready for processing
+      if (video.readyState < 2) {
+        rafId = requestAnimationFrame(detect);
+        return;
+      }
 
       try {
+        detectionCount++;
+        if (detectionCount % 30 === 1) {
+          console.log(`🔄 Detection attempt #${detectionCount}, video state:`, video.readyState, "dimensions:", video.videoWidth, "x", video.videoHeight);
+        }
+
         const det = await faceapi
-          .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
         if (!det) {
+          if (detectionCount % 60 === 0) {
+            console.log("👤 No face detected in frame (attempt", detectionCount, ")");
+          }
           rafId = requestAnimationFrame(detect);
           return;
         }
 
+        console.log("✅ Face detected! Score:", det.detection.score);
+
         if (phaseRef.current === "position") {
+          console.log("➡️ Moving to blink detection phase");
           phaseRef.current = "blink";
           setStep("blink");
           blinkCheckStart = Date.now();
@@ -230,37 +266,61 @@ export function FaceVerificationDialog({
           const earRight = eyeAspectRatio(rightEye);
           const ear = (earLeft + earRight) / 2;
 
+          if (detectionCount % 30 === 0) {
+            console.log("👁️ Eye Aspect Ratio:", ear.toFixed(3), "| Closed threshold:", EAR_CLOSED_THRESHOLD, "| eyeWasClosed:", earWasClosedRef.current);
+          }
+
           if (ear < EAR_CLOSED_THRESHOLD) {
+            if (!earWasClosedRef.current) {
+              console.log("👁️ Eye closed detected!");
+            }
             earWasClosedRef.current = true;
           } else if (ear > EAR_OPEN_THRESHOLD && earWasClosedRef.current) {
+            console.log("✅ Blink detected! Verifying face...");
             blinkDetectedRef.current = true;
             setStep("verifying");
 
             const descriptor = Array.from(det.descriptor);
             const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
+            console.log("📊 Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
+            
             if (distance < FACE_MATCH_THRESHOLD) {
+              console.log("✅ Face matched! Clock in successful");
               setStep("success");
               onVerified();
               onOpenChange(false);
             } else {
+              console.log("❌ Face did not match. Distance too large.");
               setStep("error");
               setError("Face did not match. Please try again.");
             }
           }
 
           if (blinkCheckStart && Date.now() - blinkCheckStart > BLINK_DETECTION_MS && !blinkDetectedRef.current) {
+            console.log("⏰ Blink timeout - no blink detected within", BLINK_DETECTION_MS, "ms");
             setStep("error");
             setError("Blink was not detected. Use a live face (not a photo) and blink once.");
           }
         }
-      } catch (_) {
-        // ignore single-frame errors
+      } catch (err: any) {
+        // Log errors instead of silently ignoring
+        if (detectionCount % 60 === 0) {
+          console.error("⚠️ Detection error:", err?.message || err);
+        }
       }
       rafId = requestAnimationFrame(detect);
     }
 
-    rafId = requestAnimationFrame(detect);
-    return () => cancelAnimationFrame(rafId);
+    // Small delay to ensure video is playing
+    setTimeout(() => {
+      console.log("🚀 Starting detection loop");
+      rafId = requestAnimationFrame(detect);
+    }, 100);
+
+    return () => {
+      console.log("🛑 Stopping detection loop");
+      cancelAnimationFrame(rafId);
+    };
   }, [step, storedDescriptor, onVerified, onOpenChange, cameraReady]);
 
   const handleClose = () => {

@@ -96,6 +96,13 @@ export default function EmployeeDashboard({
       setAttendanceStats(stats);
       setMonthlyStats(monthly);
       setFaceDescriptor(descriptor);
+      
+      // Log face descriptor status for debugging
+      console.log("📊 Face descriptor loaded:", {
+        hasDescriptor: !!descriptor,
+        length: descriptor?.length,
+        isValid: descriptor?.length === 128
+      });
     } catch (error) {
       console.error("❌ Error loading employee data:", error);
       toast({
