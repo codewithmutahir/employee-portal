@@ -1355,11 +1355,29 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { weekday: 'short' })}
+                      tickFormatter={(value) => {
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value);
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString('en-US', { weekday: 'short' });
+                        } catch {
+                          return String(value);
+                        }
+                      }}
                     />
                     <YAxis />
                     <Tooltip
-                      labelFormatter={(value) => new Date(value).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                      labelFormatter={(value) => {
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value);
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+                        } catch {
+                          return String(value);
+                        }
+                      }}
                       formatter={(value: number | undefined, name: string | undefined) => [
                         (name === 'presentCount') ? `${value || 0}/${workforceInsights.attendanceTrends[0]?.totalEmployees || 0}` : (value || 0),
                         (name === 'presentCount') ? 'Present Employees' : (name || '')

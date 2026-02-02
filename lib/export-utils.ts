@@ -15,6 +15,29 @@ interface EmployeeExportData {
   attendance: AttendanceRecord[];
 }
 
+// Helper function to safely format dates
+function safeFormatDate(dateValue: string | Date | null | undefined, options?: Intl.DateTimeFormatOptions): string {
+  if (!dateValue) return 'N/A';
+  try {
+    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', options);
+  } catch {
+    return 'N/A';
+  }
+}
+
+function safeFormatTime(dateValue: string | Date | null | undefined, options?: Intl.DateTimeFormatOptions): string {
+  if (!dateValue) return '';
+  try {
+    const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('en-US', options);
+  } catch {
+    return '';
+  }
+}
+
 export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   const { employee, compensation, attendance } = data;
   
@@ -35,7 +58,7 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   output += `Department: ${employee.department || 'N/A'}\n`;
   output += `Position: ${employee.position || 'N/A'}\n`;
   output += `Status: ${employee.status || 'N/A'}\n`;
-  output += `Hire Date: ${employee.hireDate ? new Date(employee.hireDate).toLocaleDateString() : 'N/A'}\n`;
+  output += `Hire Date: ${safeFormatDate(employee.hireDate)}\n`;
   if (employee.phoneNumber) {
     output += `Phone: ${employee.phoneNumber}\n`;
   }
@@ -115,7 +138,7 @@ export function formatEmployeeDataAsCSV(data: EmployeeExportData): string {
   csv += `Department,"${employee.department || 'N/A'}"\n`;
   csv += `Position,"${employee.position || 'N/A'}"\n`;
   csv += `Status,"${employee.status || 'N/A'}"\n`;
-  csv += `Hire Date,"${employee.hireDate ? new Date(employee.hireDate).toLocaleDateString() : 'N/A'}"\n`;
+  csv += `Hire Date,"${safeFormatDate(employee.hireDate)}"\n`;
   csv += `Phone,"${employee.phoneNumber || 'N/A'}"\n`;
   csv += '\n';
   
@@ -164,7 +187,7 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
     csv += `"${employee.department || 'N/A'}",`;
     csv += `"${employee.position || 'N/A'}",`;
     csv += `"${employee.status || 'N/A'}",`;
-    csv += `"${employee.hireDate ? new Date(employee.hireDate).toLocaleDateString() : 'N/A'}",`;
+    csv += `"${safeFormatDate(employee.hireDate)}",`;
     csv += `${totalDays},`;
     csv += `${totalHours.toFixed(2)},`;
     csv += `${avgHours}\n`;
@@ -238,27 +261,16 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   
   // Process each attendance record
   sortedAttendance.forEach((record) => {
-    const clockInDate = record.clockIn ? new Date(record.clockIn) : null;
-    const clockOutDate = record.clockOut ? new Date(record.clockOut) : null;
-    
-    // Format dates
-    const clockInDateStr = clockInDate 
-      ? clockInDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-      : '';
-    const clockInTimeStr = clockInDate 
-      ? clockInDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
-      : '';
-    const clockOutDateStr = clockOutDate 
-      ? clockOutDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-      : '';
-    const clockOutTimeStr = clockOutDate 
-      ? clockOutDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
-      : '';
+    // Format dates with safe formatting
+    const clockInDateStr = safeFormatDate(record.clockIn, { year: 'numeric', month: 'long', day: 'numeric' });
+    const clockInTimeStr = safeFormatTime(record.clockIn, { hour: 'numeric', minute: '2-digit', hour12: true })?.toLowerCase() || '';
+    const clockOutDateStr = safeFormatDate(record.clockOut, { year: 'numeric', month: 'long', day: 'numeric' });
+    const clockOutTimeStr = safeFormatTime(record.clockOut, { hour: 'numeric', minute: '2-digit', hour12: true })?.toLowerCase() || '';
     
     // Get first break (or empty if no breaks)
     const firstBreak = record.breaks && record.breaks.length > 0 ? record.breaks[0] : null;
     const breakStartStr = firstBreak && firstBreak.startTime
-      ? new Date(firstBreak.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+      ? safeFormatTime(firstBreak.startTime, { hour: 'numeric', minute: '2-digit', hour12: true })?.toLowerCase() || ''
       : '';
     const breakEndStr = firstBreak && firstBreak.endTime
       ? new Date(firstBreak.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()

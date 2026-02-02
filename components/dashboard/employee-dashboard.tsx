@@ -609,21 +609,33 @@ export default function EmployeeDashboard({
                     <XAxis
                       dataKey="month"
                       tickFormatter={(value) => {
-                        const date = new Date(value + "-01");
-                        return date.toLocaleDateString("en-US", {
-                          month: "short",
-                          year: "2-digit",
-                        });
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value + "-01");
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString("en-US", {
+                            month: "short",
+                            year: "2-digit",
+                          });
+                        } catch {
+                          return String(value);
+                        }
                       }}
                     />
                     <YAxis />
                     <Tooltip
                       labelFormatter={(value) => {
-                        const date = new Date(value + "-01");
-                        return date.toLocaleDateString("en-US", {
-                          month: "long",
-                          year: "numeric",
-                        });
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value + "-01");
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString("en-US", {
+                            month: "long",
+                            year: "numeric",
+                          });
+                        } catch {
+                          return String(value);
+                        }
                       }}
                       formatter={(value: number | undefined) => [
                         `${(value || 0).toFixed(1)} hours`,
@@ -649,21 +661,35 @@ export default function EmployeeDashboard({
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
-                      tickFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", {
-                          weekday: "short",
-                        })
-                      }
+                      tickFormatter={(value) => {
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value);
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString("en-US", {
+                            weekday: "short",
+                          });
+                        } catch {
+                          return String(value);
+                        }
+                      }}
                     />
                     <YAxis />
                     <Tooltip
-                      labelFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                        })
-                      }
+                      labelFormatter={(value) => {
+                        if (!value) return '';
+                        try {
+                          const date = new Date(value);
+                          if (isNaN(date.getTime())) return String(value);
+                          return date.toLocaleDateString("en-US", {
+                            weekday: "long",
+                            month: "short",
+                            day: "numeric",
+                          });
+                        } catch {
+                          return String(value);
+                        }
+                      }}
                       formatter={(value: number | undefined) => [
                         `${(value || 0).toFixed(1)} hours`,
                         "Hours Worked",
