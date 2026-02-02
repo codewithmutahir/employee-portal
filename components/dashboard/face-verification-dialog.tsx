@@ -41,6 +41,7 @@ export function FaceVerificationDialog({
   const [step, setStep] = useState<Step>("loading");
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  const [detectionStatus, setDetectionStatus] = useState<string>("Initializing...");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceApiRef = useRef<typeof import("face-api.js") | null>(null);
@@ -64,6 +65,7 @@ export function FaceVerificationDialog({
       setStep("loading");
       setError(null);
       setCameraReady(false);
+      setDetectionStatus("Initializing...");
       blinkDetectedRef.current = false;
       earWasClosedRef.current = false;
       phaseRef.current = "position";
@@ -80,16 +82,46 @@ export function FaceVerificationDialog({
 
     async function init() {
       try {
+        console.log("🚀 Initializing face verification...");
+        
         const faceapi = await import("face-api.js");
         faceApiRef.current = faceapi;
+        console.log("✅ face-api.js loaded");
 
         if (!modelsLoadedRef.current) {
-          await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
-            faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
-            faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
-          ]);
-          modelsLoadedRef.current = true;
+          console.log("📦 Loading face detection models from:", MODELS_BASE);
+          
+          try {
+            await Promise.all([
+              faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
+              faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
+              faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
+            ]);
+            
+            // Verify models loaded
+            const modelsLoaded = 
+              faceapi.nets.tinyFaceDetector.isLoaded &&
+              faceapi.nets.faceLandmark68Net.isLoaded &&
+              faceapi.nets.faceRecognitionNet.isLoaded;
+            
+            console.log("📦 Models loaded status:", {
+              tinyFaceDetector: faceapi.nets.tinyFaceDetector.isLoaded,
+              faceLandmark68Net: faceapi.nets.faceLandmark68Net.isLoaded,
+              faceRecognitionNet: faceapi.nets.faceRecognitionNet.isLoaded,
+            });
+            
+            if (!modelsLoaded) {
+              throw new Error("One or more models failed to load");
+            }
+            
+            modelsLoadedRef.current = true;
+            console.log("✅ All models loaded successfully");
+          } catch (modelError: any) {
+            console.error("❌ Model loading error:", modelError);
+            throw new Error(`Failed to load face recognition models: ${modelError.message}. Check that /public/models folder exists with the required model files.`);
+          }
+        } else {
+          console.log("✅ Models already loaded (cached)");
         }
 
         if (cancelled) return;
@@ -226,14 +258,30 @@ export function FaceVerificationDialog({
 
       // Wait for video to be ready for processing
       if (video.readyState < 2) {
+        if (detectionCount === 0) {
+          console.log("⏳ Waiting for video to be ready, readyState:", video.readyState);
+        }
+        rafId = requestAnimationFrame(detect);
+        return;
+      }
+
+      // Check video dimensions are valid
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        if (detectionCount === 0) {
+          console.log("⏳ Waiting for valid video dimensions...");
+        }
         rafId = requestAnimationFrame(detect);
         return;
       }
 
       try {
         detectionCount++;
-        if (detectionCount % 30 === 1) {
-          console.log(`🔄 Detection attempt #${detectionCount}, video state:`, video.readyState, "dimensions:", video.videoWidth, "x", video.videoHeight);
+        if (detectionCount === 1) {
+          console.log(`🔄 First detection attempt - video state: ${video.readyState}, dimensions: ${video.videoWidth}x${video.videoHeight}`);
+          console.log("🔧 Using TinyFaceDetectorOptions: inputSize=320, scoreThreshold=0.3");
+          setDetectionStatus("Scanning for face...");
+        } else if (detectionCount % 30 === 0) {
+          console.log(`🔄 Detection attempt #${detectionCount}`);
         }
 
         const det = await faceapi
@@ -244,12 +292,14 @@ export function FaceVerificationDialog({
         if (!det) {
           if (detectionCount % 60 === 0) {
             console.log("👤 No face detected in frame (attempt", detectionCount, ")");
+            setDetectionStatus(`Searching... (${detectionCount} frames)`);
           }
           rafId = requestAnimationFrame(detect);
           return;
         }
 
         console.log("✅ Face detected! Score:", det.detection.score);
+        setDetectionStatus(`Face detected! Score: ${(det.detection.score * 100).toFixed(0)}%`);
 
         if (phaseRef.current === "position") {
           console.log("➡️ Moving to blink detection phase");
@@ -375,6 +425,16 @@ export function FaceVerificationDialog({
             </div>
           )}
         </div>
+        
+        {/* Detection status indicator */}
+        {(step === "position" || step === "blink") && (
+          <div className="text-center text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+              {detectionStatus}
+            </span>
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>

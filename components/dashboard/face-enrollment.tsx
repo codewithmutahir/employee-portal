@@ -37,15 +37,32 @@ export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) 
     let cancelled = false;
     async function loadModels() {
       try {
+        console.log("🚀 Loading face-api.js...");
         const faceapi = await import("face-api.js");
         faceApiRef.current = faceapi;
+        console.log("✅ face-api.js loaded");
+        
+        console.log("📦 Loading face detection models from:", MODELS_BASE);
+        
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
           faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
         ]);
-        if (!cancelled) setModelsReady(true);
+        
+        // Verify models loaded
+        console.log("📦 Models loaded status:", {
+          tinyFaceDetector: faceapi.nets.tinyFaceDetector.isLoaded,
+          faceLandmark68Net: faceapi.nets.faceLandmark68Net.isLoaded,
+          faceRecognitionNet: faceapi.nets.faceRecognitionNet.isLoaded,
+        });
+        
+        if (!cancelled) {
+          setModelsReady(true);
+          console.log("✅ All models loaded successfully, ready for face enrollment");
+        }
       } catch (err: any) {
+        console.error("❌ Model loading error:", err);
         if (!cancelled) {
           setError(err?.message || "Failed to load face recognition models. Ensure /public/models contains the required model folders.");
         }
