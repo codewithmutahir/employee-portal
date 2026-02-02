@@ -15,9 +15,14 @@ import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 const MODELS_BASE = "/models";
-const FACE_MATCH_THRESHOLD = 0.6;
+// STRICT face matching - lower = more strict (0.4-0.5 is recommended)
+// Same person typically has distance < 0.4
+// Different person typically has distance > 0.5
+const FACE_MATCH_THRESHOLD = 0.45;
 // How long to hold face steady for verification (in ms)
 const HOLD_DURATION_MS = 2500;
+// Minimum confidence score for face detection
+const MIN_DETECTION_SCORE = 0.5;
 
 type Step = "loading" | "camera" | "detecting" | "verifying" | "success" | "error";
 
@@ -196,8 +201,8 @@ export function FaceVerificationDialog({
         
         const det = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
-            inputSize: 320, 
-            scoreThreshold: 0.3 
+            inputSize: 416,  // Higher resolution for better accuracy
+            scoreThreshold: MIN_DETECTION_SCORE 
           }))
           .withFaceLandmarks()
           .withFaceDescriptor();
@@ -216,13 +221,24 @@ export function FaceVerificationDialog({
           return;
         }
 
-        // Face detected!
+        // Check detection confidence
+        const detectionScore = det.detection.score;
+        if (detectionScore < MIN_DETECTION_SCORE) {
+          if (frameCount % 30 === 0) {
+            console.log("⚠️ Low detection score:", detectionScore);
+            setStatusText("Move closer or improve lighting...");
+          }
+          rafId = requestAnimationFrame(detect);
+          return;
+        }
+
+        // Face detected with good confidence!
         setFaceDetected(true);
         
         // Start timer if not already started
         if (!detectionStartTimeRef.current) {
           detectionStartTimeRef.current = Date.now();
-          console.log("✅ Face detected, starting hold timer");
+          console.log("✅ Face detected with score:", detectionScore.toFixed(2));
         }
         
         const elapsed = Date.now() - detectionStartTimeRef.current;
@@ -244,13 +260,16 @@ export function FaceVerificationDialog({
           setStatusText("Verifying identity...");
           setStep("verifying");
           
-          // Verify face match
+          // Verify face match with STRICT threshold
           const descriptor = Array.from(det.descriptor);
           const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
-          console.log("📊 Face distance:", distance, "| Threshold:", FACE_MATCH_THRESHOLD);
+          console.log("📊 Face match check:");
+          console.log("   Distance:", distance.toFixed(4));
+          console.log("   Threshold:", FACE_MATCH_THRESHOLD);
+          console.log("   Result:", distance < FACE_MATCH_THRESHOLD ? "MATCH ✅" : "NO MATCH ❌");
           
           if (distance < FACE_MATCH_THRESHOLD) {
-            console.log("✅ Face matched!");
+            console.log("✅ Face matched! Identity verified.");
             setStep("success");
             setStatusText("Verified successfully!");
             
@@ -260,9 +279,23 @@ export function FaceVerificationDialog({
               onOpenChange(false);
             }, 800);
           } else {
-            console.log("❌ Face did not match. Distance:", distance);
+            // Face detected but doesn't match the registered face
+            console.log("❌ Face did NOT match registered face!");
+            console.log("   This could mean:");
+            console.log("   - Different person trying to clock in");
+            console.log("   - Face registration needs to be redone");
+            console.log("   - Poor lighting/angle during verification");
+            
             setStep("error");
-            setError(`Face did not match your registered face. Please try again or re-register.`);
+            
+            // Give specific feedback based on how far off it was
+            if (distance > 0.7) {
+              setError("This face does not match the registered employee. Access denied.");
+            } else if (distance > 0.55) {
+              setError("Face verification failed. This doesn't appear to be the registered employee.");
+            } else {
+              setError("Face didn't match clearly. Try better lighting or re-register your face.");
+            }
           }
           return;
         }
