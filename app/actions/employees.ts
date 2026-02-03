@@ -535,9 +535,10 @@ function getTenureLabel(years: number): string {
 }
 
 /**
- * Calculate tenure (time since hire date)
+ * Calculate tenure (time since hire date) - Internal helper function
+ * For client-side use, import from '@/lib/utils' instead
  */
-export function calculateTenure(hireDate: string | Date | undefined): TenureInfo | null {
+function calculateTenure(hireDate: string | Date | undefined): TenureInfo | null {
   if (!hireDate) return null;
   
   try {
