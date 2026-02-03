@@ -9,13 +9,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee } from '@/app/actions/employees';
+import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary, calculateTenure } from '@/app/actions/employees';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
@@ -31,6 +31,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [upcomingBirthdays, setUpcomingBirthdays] = useState<Employee[]>([]);
+  const [upcomingAnniversaries, setUpcomingAnniversaries] = useState<WorkAnniversary[]>([]);
+  const [tenureStats, setTenureStats] = useState<any>(null);
   const [departmentStats, setDepartmentStats] = useState<any>(null);
   const [workforceInsights, setWorkforceInsights] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -149,6 +151,19 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     }
   }
 
+  async function loadAnniversaries() {
+    try {
+      const [anniversaries, stats] = await Promise.all([
+        getUpcomingAnniversaries(60, 'employee'), // 60 days to catch more
+        getTenureStatistics(),
+      ]);
+      setUpcomingAnniversaries(anniversaries);
+      setTenureStats(stats);
+    } catch (error) {
+      console.error('Error loading anniversaries:', error);
+    }
+  }
+
   const loadEmployeeDetails = useCallback(async () => {
     if (!selectedEmployee) return;
     setLoading(true);
@@ -182,6 +197,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   useEffect(() => {
     loadEmployees();
     loadBirthdays();
+    loadAnniversaries();
     loadManagementReports();
   }, []);
 
@@ -779,7 +795,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           <Card className="mt-4">
             <CardHeader>
               <CardTitle className="flex items-center">
-                <Calendar className="mr-2 h-5 w-5" />
+                <Cake className="mr-2 h-5 w-5" />
                 Upcoming Birthdays
               </CardTitle>
             </CardHeader>
@@ -802,6 +818,144 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
               )}
             </CardContent>
           </Card>
+
+          {/* Work Anniversaries */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Award className="mr-2 h-5 w-5" />
+                Work Anniversaries
+              </CardTitle>
+              <CardDescription>Upcoming milestones (next 60 days)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {upcomingAnniversaries.length > 0 ? (
+                <div className="space-y-3">
+                  {upcomingAnniversaries.slice(0, 8).map((anniversary) => (
+                    <div 
+                      key={anniversary.employee.id} 
+                      className={`p-3 rounded-lg border ${
+                        anniversary.isMilestone 
+                          ? anniversary.milestoneType === 'diamond' ? 'bg-purple-50 border-purple-200' :
+                            anniversary.milestoneType === 'platinum' ? 'bg-slate-50 border-slate-300' :
+                            anniversary.milestoneType === 'gold' ? 'bg-yellow-50 border-yellow-200' :
+                            anniversary.milestoneType === 'silver' ? 'bg-gray-50 border-gray-300' :
+                            'bg-blue-50 border-blue-200'
+                          : 'bg-background'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{anniversary.employee.displayName}</p>
+                            {anniversary.isMilestone && (
+                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+                                anniversary.milestoneType === 'diamond' ? 'bg-purple-100 text-purple-700' :
+                                anniversary.milestoneType === 'platinum' ? 'bg-slate-200 text-slate-700' :
+                                anniversary.milestoneType === 'gold' ? 'bg-yellow-100 text-yellow-700' :
+                                anniversary.milestoneType === 'silver' ? 'bg-gray-200 text-gray-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {anniversary.milestoneType === 'diamond' && <Gem className="h-3 w-3" />}
+                                {anniversary.milestoneType === 'platinum' && <Trophy className="h-3 w-3" />}
+                                {anniversary.milestoneType === 'gold' && <Medal className="h-3 w-3" />}
+                                {anniversary.milestoneType === 'silver' && <Star className="h-3 w-3" />}
+                                Milestone
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {anniversary.employee.department || 'No Department'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-primary">
+                            {anniversary.yearsCompleting} {anniversary.yearsCompleting === 1 ? 'Year' : 'Years'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {anniversary.daysUntil === 0 
+                              ? 'Today!' 
+                              : anniversary.daysUntil === 1 
+                                ? 'Tomorrow' 
+                                : `In ${anniversary.daysUntil} days`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No upcoming anniversaries</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Tenure Statistics */}
+          {tenureStats && tenureStats.totalEmployees > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="flex items-center text-base">
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  Tenure Overview
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <p className="text-2xl font-bold text-primary">
+                      {tenureStats.averageTenureYears}y {tenureStats.averageTenureMonths}m
+                    </p>
+                    <p className="text-xs text-muted-foreground">Average Tenure</p>
+                  </div>
+                  {tenureStats.longestTenure && (
+                    <div className="p-3 bg-yellow-50 rounded-lg">
+                      <p className="text-2xl font-bold text-yellow-700">
+                        {tenureStats.longestTenure.tenure.shortLabel}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {tenureStats.longestTenure.employee.displayName}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                {tenureStats.milestonesThisYear.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Milestones This Year</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tenureStats.milestonesThisYear.map((m: { milestone: number; count: number }) => (
+                        <span 
+                          key={m.milestone}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-100 text-green-700"
+                        >
+                          <Star className="h-3 w-3" />
+                          {m.milestone}yr: {m.count} employee{m.count !== 1 ? 's' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-sm font-medium mb-2">Tenure Distribution</p>
+                  <div className="space-y-2">
+                    {tenureStats.tenureDistribution.filter((d: any) => d.count > 0).map((dist: any) => (
+                      <div key={dist.range} className="flex items-center gap-2">
+                        <span className="text-xs w-20 text-muted-foreground">{dist.range}</span>
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary rounded-full transition-all"
+                            style={{ width: `${dist.percentage}%` }}
+                          />
+                        </div>
+                        <span className="text-xs w-12 text-right">{dist.count} ({dist.percentage}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Employee Details */}
@@ -956,6 +1110,32 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <p className="text-sm text-muted-foreground">Hire Date</p>
                       <p className="font-medium">{formatDate(selectedEmployee.hireDate)}</p>
                     </div>
+                    {selectedEmployee.hireDate && (() => {
+                      const tenure = calculateTenure(selectedEmployee.hireDate);
+                      if (!tenure) return null;
+                      return (
+                        <div>
+                          <p className="text-sm text-muted-foreground">Tenure</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{tenure.label}</p>
+                            {tenure.years >= 5 && (
+                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
+                                tenure.years >= 25 ? 'bg-purple-100 text-purple-700' :
+                                tenure.years >= 20 ? 'bg-slate-200 text-slate-700' :
+                                tenure.years >= 10 ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-gray-200 text-gray-700'
+                              }`}>
+                                {tenure.years >= 25 && <Gem className="h-3 w-3" />}
+                                {tenure.years >= 20 && tenure.years < 25 && <Trophy className="h-3 w-3" />}
+                                {tenure.years >= 10 && tenure.years < 20 && <Medal className="h-3 w-3" />}
+                                {tenure.years >= 5 && tenure.years < 10 && <Star className="h-3 w-3" />}
+                                {tenure.years >= 25 ? 'Diamond' : tenure.years >= 20 ? 'Platinum' : tenure.years >= 10 ? 'Gold' : 'Silver'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>

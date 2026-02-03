@@ -21,6 +21,7 @@ import {
   getEmployeeAttendanceStats,
   getEmployeeMonthlyStats,
 } from "@/app/actions/attendance";
+import { calculateTenure } from "@/app/actions/employees";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate, formatTime, isToday } from "@/lib/utils";
 import {
@@ -32,6 +33,11 @@ import {
   BarChart3,
   TrendingUp,
   ScanFace,
+  Award,
+  Star,
+  Medal,
+  Trophy,
+  Gem,
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
@@ -359,6 +365,40 @@ export default function EmployeeDashboard({
               <p className="text-sm text-muted-foreground">Hire Date</p>
               <p className="font-medium">{formatDate(employee.hireDate)}</p>
             </div>
+            {employee.hireDate && (() => {
+              const tenure = calculateTenure(employee.hireDate);
+              if (!tenure) return null;
+              return (
+                <div className="sm:col-span-2">
+                  <p className="text-sm text-muted-foreground">Time with Company</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 p-2 bg-primary/10 rounded-lg">
+                      <Award className="h-5 w-5 text-primary" />
+                      <span className="font-bold text-primary">{tenure.label}</span>
+                    </div>
+                    {tenure.years >= 1 && (
+                      <span className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full ${
+                        tenure.years >= 25 ? 'bg-purple-100 text-purple-700' :
+                        tenure.years >= 20 ? 'bg-slate-200 text-slate-700' :
+                        tenure.years >= 10 ? 'bg-yellow-100 text-yellow-700' :
+                        tenure.years >= 5 ? 'bg-gray-200 text-gray-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {tenure.years >= 25 && <Gem className="h-3 w-3" />}
+                        {tenure.years >= 20 && tenure.years < 25 && <Trophy className="h-3 w-3" />}
+                        {tenure.years >= 10 && tenure.years < 20 && <Medal className="h-3 w-3" />}
+                        {tenure.years >= 5 && tenure.years < 10 && <Star className="h-3 w-3" />}
+                        {tenure.years >= 25 ? 'Diamond Member' : 
+                         tenure.years >= 20 ? 'Platinum Member' : 
+                         tenure.years >= 10 ? 'Gold Member' : 
+                         tenure.years >= 5 ? 'Silver Member' : 
+                         `${tenure.years} Year${tenure.years > 1 ? 's' : ''} of Service`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>
