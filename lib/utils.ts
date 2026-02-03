@@ -6,18 +6,42 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: string | Date): string {
+export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return 'N/A';
+  
   try {
-    const d = typeof date === 'string' ? new Date(date) : date;
-    if (isNaN(d.getTime())) return 'Invalid Date';
+    let d: Date;
+    
+    if (typeof date === 'string') {
+      // Handle ISO string or other date formats
+      d = new Date(date);
+    } else if (date instanceof Date) {
+      d = date;
+    } else if (typeof date === 'object') {
+      // Handle Firestore Timestamp-like objects
+      const anyDate = date as any;
+      if (anyDate._seconds !== undefined) {
+        d = new Date(anyDate._seconds * 1000);
+      } else if (anyDate.seconds !== undefined) {
+        d = new Date(anyDate.seconds * 1000);
+      } else if (typeof anyDate.toDate === 'function') {
+        d = anyDate.toDate();
+      } else {
+        return 'N/A';
+      }
+    } else {
+      return 'N/A';
+    }
+    
+    if (isNaN(d.getTime())) return 'N/A';
+    
     return d.toLocaleDateString('en-US', { 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric' 
     });
   } catch {
-    return 'Invalid Date';
+    return 'N/A';
   }
 }
 

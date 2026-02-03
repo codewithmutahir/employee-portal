@@ -5,6 +5,53 @@ import { adminAuth } from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { Employee, Compensation } from '@/types';
 
+// Helper function to safely convert any date format to ISO string
+function toISOString(value: any): string | undefined {
+  if (!value) return undefined;
+  
+  try {
+    // Case 1: Firestore Timestamp with toDate() method
+    if (typeof value?.toDate === 'function') {
+      return value.toDate().toISOString();
+    }
+    
+    // Case 2: Firestore Timestamp-like object with _seconds (from serialization)
+    if (value._seconds !== undefined) {
+      return new Date(value._seconds * 1000).toISOString();
+    }
+    
+    // Case 3: Object with seconds property (alternate Timestamp format)
+    if (value.seconds !== undefined) {
+      return new Date(value.seconds * 1000).toISOString();
+    }
+    
+    // Case 4: Already a Date object
+    if (value instanceof Date) {
+      if (isNaN(value.getTime())) return undefined;
+      return value.toISOString();
+    }
+    
+    // Case 5: ISO string or other date string
+    if (typeof value === 'string') {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) return undefined;
+      return date.toISOString();
+    }
+    
+    // Case 6: Unix timestamp (number)
+    if (typeof value === 'number') {
+      // If it looks like seconds (before year 2100), multiply by 1000
+      const timestamp = value < 4102444800 ? value * 1000 : value;
+      return new Date(timestamp).toISOString();
+    }
+    
+    return undefined;
+  } catch (error) {
+    console.error('Date conversion error:', error, 'Value:', value);
+    return undefined;
+  }
+}
+
 export async function getEmployee(employeeId: string): Promise<Employee | null> {
   try {
     const doc = await adminDb.collection('employees').doc(employeeId).get();
@@ -21,10 +68,10 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
       department: data?.department,
       position: data?.position,
       phoneNumber: data?.phoneNumber,
-      dateOfBirth: data?.dateOfBirth?.toDate?.()?.toISOString() || data?.dateOfBirth,
-      hireDate: data?.hireDate?.toDate?.()?.toISOString() || data?.hireDate,
-      createdAt: data?.createdAt?.toDate?.()?.toISOString() || data?.createdAt,
-      updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || data?.updatedAt,
+      dateOfBirth: toISOString(data?.dateOfBirth),
+      hireDate: toISOString(data?.hireDate),
+      createdAt: toISOString(data?.createdAt),
+      updatedAt: toISOString(data?.updatedAt),
     } as Employee;
   } catch (error: any) {
     console.error('Get employee error:', error);
@@ -54,10 +101,10 @@ export async function getAllEmployees(excludeManagement: boolean = true) {
         department: data?.department,
         position: data?.position,
         phoneNumber: data?.phoneNumber,
-        dateOfBirth: data?.dateOfBirth?.toDate?.()?.toISOString() || data?.dateOfBirth,
-        hireDate: data?.hireDate?.toDate?.()?.toISOString() || data?.hireDate,
-        createdAt: data?.createdAt?.toDate?.()?.toISOString() || data?.createdAt,
-        updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || data?.updatedAt,
+        dateOfBirth: toISOString(data?.dateOfBirth),
+        hireDate: toISOString(data?.hireDate),
+        createdAt: toISOString(data?.createdAt),
+        updatedAt: toISOString(data?.updatedAt),
       } as Employee;
     });
     return employees;
@@ -85,10 +132,10 @@ export async function getManagementUsers() {
         department: data?.department,
         position: data?.position,
         phoneNumber: data?.phoneNumber,
-        dateOfBirth: data?.dateOfBirth?.toDate?.()?.toISOString() || data?.dateOfBirth,
-        hireDate: data?.hireDate?.toDate?.()?.toISOString() || data?.hireDate,
-        createdAt: data?.createdAt?.toDate?.()?.toISOString() || data?.createdAt,
-        updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || data?.updatedAt,
+        dateOfBirth: toISOString(data?.dateOfBirth),
+        hireDate: toISOString(data?.hireDate),
+        createdAt: toISOString(data?.createdAt),
+        updatedAt: toISOString(data?.updatedAt),
       } as Employee;
     });
     return managers;
@@ -381,10 +428,10 @@ export async function getUpcomingBirthdays(days: number = 30, roleFilter?: 'empl
           department: data?.department,
           position: data?.position,
           phoneNumber: data?.phoneNumber,
-          dateOfBirth: data?.dateOfBirth?.toDate?.()?.toISOString() || data?.dateOfBirth,
-          hireDate: data?.hireDate?.toDate?.()?.toISOString() || data?.hireDate,
-          createdAt: data?.createdAt?.toDate?.()?.toISOString() || data?.createdAt,
-          updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || data?.updatedAt,
+          dateOfBirth: toISOString(data?.dateOfBirth),
+          hireDate: toISOString(data?.hireDate),
+          createdAt: toISOString(data?.createdAt),
+          updatedAt: toISOString(data?.updatedAt),
         } as Employee;
       })
       .filter(emp => {
