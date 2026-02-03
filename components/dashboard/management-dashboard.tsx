@@ -10,13 +10,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary } from '@/app/actions/employees';
+import { sendWelcomeEmail, sendNotificationEmail } from '@/app/actions/email';
 import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Mail, Send } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
@@ -36,6 +37,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [tenureStats, setTenureStats] = useState<any>(null);
   const [departmentStats, setDepartmentStats] = useState<any>(null);
   const [workforceInsights, setWorkforceInsights] = useState<any>(null);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [sendingEmployeeEmail, setSendingEmployeeEmail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [employeesLoading, setEmployeesLoading] = useState(true);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
@@ -165,6 +168,74 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       setTenureStats(stats);
     } catch (error) {
       console.error('Error loading anniversaries:', error);
+    }
+  }
+
+  async function handleSendTestEmail() {
+    setSendingTestEmail(true);
+    try {
+      const result = await sendNotificationEmail(
+        employee.email,
+        '🧪 Test Email - Employee Portal',
+        `Hello ${employee.displayName},\n\nThis is a test email from the Employee Portal to confirm that the email service is working correctly.\n\nIf you received this email, your Mailtrap integration is configured properly!\n\nBest regards,\nEmployee Portal System`,
+        'test'
+      );
+
+      if (result.success) {
+        toast({
+          title: 'Test Email Sent!',
+          description: `Email successfully sent to ${employee.email}`,
+        });
+      } else {
+        toast({
+          title: 'Failed to Send Email',
+          description: result.error || 'An error occurred while sending the test email',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Email Error',
+        description: error.message || 'Failed to send test email',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingTestEmail(false);
+    }
+  }
+
+  async function handleSendEmployeeEmail() {
+    if (!selectedEmployee) return;
+    
+    setSendingEmployeeEmail(true);
+    try {
+      const result = await sendNotificationEmail(
+        selectedEmployee.email,
+        '📢 Message from Management - Employee Portal',
+        `Hello ${selectedEmployee.displayName},\n\nThis is a notification from the Employee Portal management team.\n\nPlease log in to your Employee Portal account to check for any updates or important information.\n\nBest regards,\nManagement Team`,
+        'management-notification'
+      );
+
+      if (result.success) {
+        toast({
+          title: 'Email Sent!',
+          description: `Notification email sent to ${selectedEmployee.displayName}`,
+        });
+      } else {
+        toast({
+          title: 'Failed to Send Email',
+          description: result.error || 'An error occurred while sending the email',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Email Error',
+        description: error.message || 'Failed to send email',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingEmployeeEmail(false);
     }
   }
 
@@ -458,6 +529,24 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           description: `${addEmployeeForm.displayName} has been successfully added to the system`,
         });
 
+        // Send welcome email to the new employee
+        try {
+          const emailResult = await sendWelcomeEmail(
+            addEmployeeForm.email,
+            addEmployeeForm.displayName,
+            addEmployeeForm.password // Include temporary password in welcome email
+          );
+          if (emailResult.success) {
+            toast({
+              title: 'Welcome Email Sent',
+              description: `Welcome email sent to ${addEmployeeForm.email}`,
+            });
+          }
+        } catch (emailError) {
+          console.error('Failed to send welcome email:', emailError);
+          // Don't show error toast - employee was still created successfully
+        }
+
         // Reset form
         setAddEmployeeForm({
           email: '',
@@ -635,6 +724,23 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           <p className="text-muted-foreground">Manage employees, attendance, and compensation</p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            onClick={handleSendTestEmail} 
+            variant="outline"
+            disabled={sendingTestEmail}
+          >
+            {sendingTestEmail ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Mail className="mr-2 h-4 w-4" />
+                Test Email
+              </>
+            )}
+          </Button>
           <Button onClick={() => setAddEmployeeDialogOpen(true)} variant="default">
             <Plus className="mr-2 h-4 w-4" />
             Add Employee
@@ -978,7 +1084,20 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <CardTitle>{selectedEmployee.displayName}</CardTitle>
                       <CardDescription>{selectedEmployee.email}</CardDescription>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleSendEmployeeEmail}
+                        disabled={sendingEmployeeEmail}
+                      >
+                        {sendingEmployeeEmail ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="mr-2 h-4 w-4" />
+                        )}
+                        Email
+                      </Button>
                       <Button variant="outline" size="sm" onClick={openEditDialog}>
                         <Pencil className="mr-2 h-4 w-4" />
                         Edit
