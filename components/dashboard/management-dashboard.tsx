@@ -17,7 +17,7 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Mail, Send } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
@@ -37,7 +37,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [tenureStats, setTenureStats] = useState<any>(null);
   const [departmentStats, setDepartmentStats] = useState<any>(null);
   const [workforceInsights, setWorkforceInsights] = useState<any>(null);
-  const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [sendingEmployeeEmail, setSendingEmployeeEmail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [employeesLoading, setEmployeesLoading] = useState(true);
@@ -168,39 +167,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       setTenureStats(stats);
     } catch (error) {
       console.error('Error loading anniversaries:', error);
-    }
-  }
-
-  async function handleSendTestEmail() {
-    setSendingTestEmail(true);
-    try {
-      const result = await sendNotificationEmail(
-        employee.email,
-        '🧪 Test Email - Employee Portal',
-        `Hello ${employee.displayName},\n\nThis is a test email from the Employee Portal to confirm that the email service is working correctly.\n\nIf you received this email, your Mailtrap integration is configured properly!\n\nBest regards,\nEmployee Portal System`,
-        'test'
-      );
-
-      if (result.success) {
-        toast({
-          title: 'Test Email Sent!',
-          description: `Email successfully sent to ${employee.email}`,
-        });
-      } else {
-        toast({
-          title: 'Failed to Send Email',
-          description: result.error || 'An error occurred while sending the test email',
-          variant: 'destructive',
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: 'Email Error',
-        description: error.message || 'Failed to send test email',
-        variant: 'destructive',
-      });
-    } finally {
-      setSendingTestEmail(false);
     }
   }
 
@@ -724,23 +690,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           <p className="text-muted-foreground">Manage employees, attendance, and compensation</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            onClick={handleSendTestEmail} 
-            variant="outline"
-            disabled={sendingTestEmail}
-          >
-            {sendingTestEmail ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Mail className="mr-2 h-4 w-4" />
-                Test Email
-              </>
-            )}
-          </Button>
           <Button onClick={() => setAddEmployeeDialogOpen(true)} variant="default">
             <Plus className="mr-2 h-4 w-4" />
             Add Employee
