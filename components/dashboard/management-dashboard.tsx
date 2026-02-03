@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary } from '@/app/actions/employees';
-import { sendWelcomeEmail, sendNotificationEmail } from '@/app/actions/email';
+import { sendWelcomeEmail, sendNotificationEmail, sendTerminationEmail, sendReactivationEmail, sendCompensationUpdateEmail, sendProfileUpdateEmail } from '@/app/actions/email';
 import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
@@ -302,12 +302,22 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   async function handleSaveCompensation() {
     if (!selectedEmployee) return;
     try {
+      // Store old values for comparison
+      const oldSalary = compensation?.salary || 0;
+      const oldAllowance = compensation?.allowance || 0;
+      const oldBonus = compensation?.bonus || 0;
+      const currency = compForm.currency;
+
+      const newSalary = parseFloat(compForm.salary) || 0;
+      const newAllowance = compForm.allowance ? parseFloat(compForm.allowance) : 0;
+      const newBonus = compForm.bonus ? parseFloat(compForm.bonus) : 0;
+
       const result = await updateCompensation(
         selectedEmployee.id,
         {
-          salary: parseFloat(compForm.salary),
-          allowance: compForm.allowance ? parseFloat(compForm.allowance) : undefined,
-          bonus: compForm.bonus ? parseFloat(compForm.bonus) : undefined,
+          salary: newSalary,
+          allowance: newAllowance || undefined,
+          bonus: newBonus || undefined,
           currency: compForm.currency,
           hourlyRate: compForm.hourlyRate ? parseFloat(compForm.hourlyRate) : undefined,
         },
@@ -315,6 +325,42 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       );
       if (result.success) {
         toast({ title: 'Compensation updated successfully' });
+
+        // Check for changes and send email notification
+        const changes: {
+          salary?: { old: number; new: number };
+          allowance?: { old: number; new: number };
+          bonus?: { old: number; new: number };
+          currency: string;
+        } = { currency };
+
+        if (oldSalary !== newSalary) {
+          changes.salary = { old: oldSalary, new: newSalary };
+        }
+        if (oldAllowance !== newAllowance) {
+          changes.allowance = { old: oldAllowance, new: newAllowance };
+        }
+        if (oldBonus !== newBonus) {
+          changes.bonus = { old: oldBonus, new: newBonus };
+        }
+
+        // Send email if there are changes
+        if (changes.salary || changes.allowance || changes.bonus) {
+          try {
+            await sendCompensationUpdateEmail(
+              selectedEmployee.email,
+              selectedEmployee.displayName,
+              changes
+            );
+            toast({
+              title: 'Notification Sent',
+              description: `Compensation update notification sent to ${selectedEmployee.email}`,
+            });
+          } catch (emailError) {
+            console.error('Failed to send compensation update email:', emailError);
+          }
+        }
+
         await loadEmployeeDetails();
       } else {
         toast({
@@ -423,6 +469,32 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           title: 'Status updated',
           description: `${selectedEmployee.displayName}'s status has been changed to ${newStatus}`,
         });
+
+        // Send email notification based on status change
+        try {
+          if (newStatus === 'terminated') {
+            await sendTerminationEmail(
+              selectedEmployee.email,
+              selectedEmployee.displayName,
+              new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            );
+            toast({
+              title: 'Notification Sent',
+              description: `Termination notice sent to ${selectedEmployee.email}`,
+            });
+          } else if (newStatus === 'active') {
+            await sendReactivationEmail(
+              selectedEmployee.email,
+              selectedEmployee.displayName
+            );
+            toast({
+              title: 'Notification Sent',
+              description: `Reactivation notice sent to ${selectedEmployee.email}`,
+            });
+          }
+        } catch (emailError) {
+          console.error('Failed to send status change email:', emailError);
+        }
 
         // Update the selected employee in state
         setSelectedEmployee({ ...selectedEmployee, status: newStatus });
@@ -617,6 +689,34 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           title: 'Employee Updated',
           description: `${editEmployeeForm.displayName}'s details have been updated`,
         });
+
+        // Send profile update email notification
+        const updatedFields: string[] = [];
+        if (updates.displayName) updatedFields.push('Name');
+        if (updates.email) updatedFields.push('Email');
+        if (updates.department) updatedFields.push('Department');
+        if (updates.position) updatedFields.push('Position');
+        if (updates.phoneNumber) updatedFields.push('Phone Number');
+        if (updates.dateOfBirth) updatedFields.push('Date of Birth');
+        if (updates.hireDate) updatedFields.push('Hire Date');
+
+        if (updatedFields.length > 0) {
+          try {
+            // Send to the employee's current email (before any email change)
+            const emailToUse = updates.email || selectedEmployee.email;
+            await sendProfileUpdateEmail(
+              emailToUse,
+              updates.displayName || selectedEmployee.displayName,
+              updatedFields
+            );
+            toast({
+              title: 'Notification Sent',
+              description: `Profile update notification sent to ${emailToUse}`,
+            });
+          } catch (emailError) {
+            console.error('Failed to send profile update email:', emailError);
+          }
+        }
 
         // Update local state
         const updatedEmployee = {

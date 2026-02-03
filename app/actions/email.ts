@@ -308,3 +308,225 @@ export async function sendNotificationEmail(
     category,
   });
 }
+
+/**
+ * Send employee termination notification
+ */
+export async function sendTerminationEmail(
+  employeeEmail: string,
+  employeeName: string,
+  terminationDate: string
+): Promise<EmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">Account Status Update</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          This email is to inform you that your Employee Portal account status has been changed to <strong>terminated</strong> as of ${terminationDate}.
+        </p>
+        <p style="color: #374151; font-size: 16px;">
+          You will no longer be able to access the Employee Portal system.
+        </p>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+          If you believe this is an error, please contact Human Resources immediately.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nThis email is to inform you that your Employee Portal account status has been changed to terminated as of ${terminationDate}.\n\nYou will no longer be able to access the Employee Portal system.\n\nIf you believe this is an error, please contact Human Resources immediately.`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: 'Account Status Update - Employee Portal',
+    html,
+    text,
+    category: 'termination',
+  });
+}
+
+/**
+ * Send employee reactivation notification
+ */
+export async function sendReactivationEmail(
+  employeeEmail: string,
+  employeeName: string
+): Promise<EmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">🎉 Account Reactivated!</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          Great news! Your Employee Portal account has been <strong style="color: #059669;">reactivated</strong>.
+        </p>
+        <p style="color: #374151; font-size: 16px;">
+          You can now log in and access all portal features:
+        </p>
+        <ul style="color: #374151;">
+          <li>Clock in and out</li>
+          <li>View your attendance history</li>
+          <li>Check your profile and compensation</li>
+        </ul>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+          Welcome back! If you have any questions, please contact HR.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nGreat news! Your Employee Portal account has been reactivated.\n\nYou can now log in and access all portal features including clocking in/out, viewing attendance history, and more.\n\nWelcome back! If you have any questions, please contact HR.`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: '🎉 Account Reactivated - Employee Portal',
+    html,
+    text,
+    category: 'reactivation',
+  });
+}
+
+/**
+ * Send compensation update notification
+ */
+export async function sendCompensationUpdateEmail(
+  employeeEmail: string,
+  employeeName: string,
+  changes: {
+    salary?: { old: number; new: number };
+    allowance?: { old: number; new: number };
+    bonus?: { old: number; new: number };
+    currency: string;
+  }
+): Promise<EmailResult> {
+  const changesList: string[] = [];
+  const changesHtml: string[] = [];
+
+  if (changes.salary) {
+    changesList.push(`Salary: ${changes.currency} ${changes.salary.old.toLocaleString()} → ${changes.currency} ${changes.salary.new.toLocaleString()}`);
+    changesHtml.push(`
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">Salary</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-decoration: line-through; color: #9ca3af;">${changes.currency} ${changes.salary.old.toLocaleString()}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: #059669; font-weight: bold;">${changes.currency} ${changes.salary.new.toLocaleString()}</td>
+      </tr>
+    `);
+  }
+
+  if (changes.allowance) {
+    changesList.push(`Allowance: ${changes.currency} ${changes.allowance.old.toLocaleString()} → ${changes.currency} ${changes.allowance.new.toLocaleString()}`);
+    changesHtml.push(`
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">Allowance</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-decoration: line-through; color: #9ca3af;">${changes.currency} ${changes.allowance.old.toLocaleString()}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: #059669; font-weight: bold;">${changes.currency} ${changes.allowance.new.toLocaleString()}</td>
+      </tr>
+    `);
+  }
+
+  if (changes.bonus) {
+    changesList.push(`Bonus: ${changes.currency} ${changes.bonus.old.toLocaleString()} → ${changes.currency} ${changes.bonus.new.toLocaleString()}`);
+    changesHtml.push(`
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">Bonus</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; text-decoration: line-through; color: #9ca3af;">${changes.currency} ${changes.bonus.old.toLocaleString()}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: #059669; font-weight: bold;">${changes.currency} ${changes.bonus.new.toLocaleString()}</td>
+      </tr>
+    `);
+  }
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">💰 Compensation Update</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          Your compensation has been updated. Here are the details:
+        </p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb;">Type</th>
+              <th style="padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb;">Previous</th>
+              <th style="padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb;">New</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${changesHtml.join('')}
+          </tbody>
+        </table>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+          If you have any questions about these changes, please contact HR.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nYour compensation has been updated:\n\n${changesList.join('\n')}\n\nIf you have any questions about these changes, please contact HR.`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: '💰 Compensation Update - Employee Portal',
+    html,
+    text,
+    category: 'compensation-update',
+  });
+}
+
+/**
+ * Send profile update notification
+ */
+export async function sendProfileUpdateEmail(
+  employeeEmail: string,
+  employeeName: string,
+  updatedFields: string[]
+): Promise<EmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">📝 Profile Updated</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          Your profile information has been updated by management. The following fields were changed:
+        </p>
+        <ul style="color: #374151;">
+          ${updatedFields.map(field => `<li>${field}</li>`).join('')}
+        </ul>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+          Please log in to the Employee Portal to review the changes. If you didn't expect these changes, please contact HR.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nYour profile information has been updated by management.\n\nUpdated fields:\n${updatedFields.map(f => `- ${f}`).join('\n')}\n\nPlease log in to the Employee Portal to review the changes.`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: '📝 Profile Updated - Employee Portal',
+    html,
+    text,
+    category: 'profile-update',
+  });
+}
