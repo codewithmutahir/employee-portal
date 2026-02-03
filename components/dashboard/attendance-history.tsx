@@ -111,11 +111,11 @@ export default function AttendanceHistory({
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-2">
                     {/* Date and Status */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-muted-foreground" />
-                          <span className="font-medium text-lg">
+                          <span className="font-medium text-base sm:text-lg">
                             {formatAttendanceDate(record.date)}
                           </span>
                         </div>
@@ -123,15 +123,15 @@ export default function AttendanceHistory({
                       </div>
 
                       {record.isEditedByManagement && (
-                        <Badge variant="outline" className="text-xs text-orange-600 border-orange-200 bg-orange-50">
+                        <Badge variant="outline" className="text-xs text-orange-600 border-orange-200 bg-orange-50 w-fit">
                           <AlertTriangle className="w-3 h-3 mr-1" />
-                          Edited by Management
+                          Edited
                         </Badge>
                       )}
                     </div>
 
                     {/* Time Details */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 text-sm">
                       {record.clockIn && (
                         <div className="flex items-center gap-2">
                           <Clock className="w-4 h-4 text-green-600" />

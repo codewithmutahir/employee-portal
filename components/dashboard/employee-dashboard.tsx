@@ -217,10 +217,10 @@ export default function EmployeeDashboard({
             <Skeleton className="h-6 w-32" />
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-5 w-full sm:w-40" />
               </div>
               <div className="space-y-2">
                 <Skeleton className="h-4 w-20" />
@@ -245,7 +245,7 @@ export default function EmployeeDashboard({
             <Skeleton className="h-4 w-32" />
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Skeleton className="h-4 w-20" />
                 <Skeleton className="h-5 w-24" />
@@ -255,9 +255,9 @@ export default function EmployeeDashboard({
                 <Skeleton className="h-5 w-24" />
               </div>
             </div>
-            <div className="flex gap-2 pt-4">
-              <Skeleton className="h-10 w-32" />
-              <Skeleton className="h-10 w-32" />
+            <div className="flex flex-wrap gap-2 pt-4">
+              <Skeleton className="h-10 w-full sm:w-32" />
+              <Skeleton className="h-10 w-full sm:w-32" />
             </div>
           </CardContent>
         </Card>
@@ -338,10 +338,10 @@ export default function EmployeeDashboard({
           <CardTitle>Profile</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="min-w-0">
               <p className="text-sm text-muted-foreground">Email</p>
-              <p className="font-medium">{employee.email}</p>
+              <p className="font-medium break-all">{employee.email}</p>
             </div>
             {employee.department && (
               <div>
@@ -372,7 +372,7 @@ export default function EmployeeDashboard({
         <CardContent className="space-y-4">
           {todayAttendance ? (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {todayAttendance.clockIn && (
                   <div>
                     <p className="text-sm text-muted-foreground">Clock In</p>
@@ -417,13 +417,14 @@ export default function EmployeeDashboard({
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2 pt-4">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-4">
                 {canClockIn && (
                   <>
                     {faceDescriptor ? (
                       <Button
                         onClick={openFaceClockIn}
                         disabled={actionLoading !== null}
+                        className="w-full sm:w-auto"
                       >
                         <ScanFace className="mr-2 h-4 w-4" />
                         Clock In (Face)
@@ -433,6 +434,7 @@ export default function EmployeeDashboard({
                         onClick={handleClockIn}
                         disabled={actionLoading !== null}
                         variant="outline"
+                        className="w-full sm:w-auto"
                       >
                         <Clock className="mr-2 h-4 w-4" />
                         Clock In (no face)
@@ -446,6 +448,7 @@ export default function EmployeeDashboard({
                       <Button
                         onClick={openFaceClockOut}
                         disabled={actionLoading !== null}
+                        className="w-full sm:w-auto"
                       >
                         <ScanFace className="mr-2 h-4 w-4" />
                         Clock Out (Face)
@@ -455,6 +458,7 @@ export default function EmployeeDashboard({
                         onClick={handleClockOut}
                         disabled={actionLoading !== null}
                         variant="outline"
+                        className="w-full sm:w-auto"
                       >
                         <LogOut className="mr-2 h-4 w-4" />
                         Clock Out (no face)
@@ -465,6 +469,7 @@ export default function EmployeeDashboard({
                         variant="outline"
                         onClick={handleStartBreak}
                         disabled={actionLoading !== null}
+                        className="w-full sm:w-auto"
                       >
                         <Coffee className="mr-2 h-4 w-4" />
                         Start Break
@@ -474,6 +479,7 @@ export default function EmployeeDashboard({
                         variant="outline"
                         onClick={handleEndBreak}
                         disabled={actionLoading !== null}
+                        className="w-full sm:w-auto"
                       >
                         <Coffee className="mr-2 h-4 w-4" />
                         End Break
@@ -489,12 +495,12 @@ export default function EmployeeDashboard({
                 No attendance record for today
               </p>
               {faceDescriptor ? (
-                <Button onClick={openFaceClockIn} disabled={actionLoading !== null}>
+                <Button onClick={openFaceClockIn} disabled={actionLoading !== null} className="w-full sm:w-auto">
                   <ScanFace className="mr-2 h-4 w-4" />
                   Clock In (Face)
                 </Button>
               ) : (
-                <Button onClick={handleClockIn} disabled={actionLoading !== null}>
+                <Button onClick={handleClockIn} disabled={actionLoading !== null} className="w-full sm:w-auto">
                   <Clock className="mr-2 h-4 w-4" />
                   Clock In
                 </Button>
