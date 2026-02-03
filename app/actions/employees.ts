@@ -608,6 +608,8 @@ export async function getUpcomingAnniversaries(
   roleFilter?: 'employee' | 'management'
 ): Promise<WorkAnniversary[]> {
   try {
+    console.log('[getUpcomingAnniversaries] Starting with days:', days, 'roleFilter:', roleFilter);
+    
     let query = adminDb.collection('employees')
       .where('status', '==', 'active');
 
@@ -616,12 +618,14 @@ export async function getUpcomingAnniversaries(
     }
 
     const snapshot = await query.get();
+    console.log('[getUpcomingAnniversaries] Found', snapshot.docs.length, 'active employees');
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const upcomingDate = new Date(today);
     upcomingDate.setDate(today.getDate() + days);
+    console.log('[getUpcomingAnniversaries] Checking anniversaries between', today.toISOString(), 'and', upcomingDate.toISOString());
 
     const anniversaries: WorkAnniversary[] = [];
 
@@ -629,7 +633,10 @@ export async function getUpcomingAnniversaries(
       const data = doc.data();
       const hireDateStr = toISOString(data?.hireDate);
       
-      if (!hireDateStr) return;
+      if (!hireDateStr) {
+        console.log('[getUpcomingAnniversaries] Employee', doc.id, 'has no hireDate');
+        return;
+      }
 
       try {
         const hireDate = new Date(hireDateStr);
@@ -721,10 +728,13 @@ export async function getTenureStatistics(): Promise<{
   milestonesThisYear: { milestone: number; count: number }[];
 }> {
   try {
+    console.log('[getTenureStatistics] Starting...');
     const employees = await getAllEmployees(false); // Include all employees
     const activeEmployees = employees.filter(e => e.status === 'active');
+    console.log('[getTenureStatistics] Found', activeEmployees.length, 'active employees');
 
     if (activeEmployees.length === 0) {
+      console.log('[getTenureStatistics] No active employees, returning empty stats');
       return {
         averageTenureYears: 0,
         averageTenureMonths: 0,
@@ -744,8 +754,11 @@ export async function getTenureStatistics(): Promise<{
       if (tenure) {
         tenures.push({ employee: emp, tenure });
         totalMonths += tenure.years * 12 + tenure.months;
+      } else {
+        console.log('[getTenureStatistics] Employee', emp.displayName, 'has invalid/missing hireDate:', emp.hireDate);
       }
     });
+    console.log('[getTenureStatistics] Calculated tenure for', tenures.length, 'employees');
 
     // Calculate average
     const avgMonths = tenures.length > 0 ? totalMonths / tenures.length : 0;

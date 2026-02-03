@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary, calculateTenure } from '@/app/actions/employees';
+import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary } from '@/app/actions/employees';
+import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
@@ -153,10 +154,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function loadAnniversaries() {
     try {
+      console.log('Loading anniversaries...');
       const [anniversaries, stats] = await Promise.all([
         getUpcomingAnniversaries(60, 'employee'), // 60 days to catch more
         getTenureStatistics(),
       ]);
+      console.log('Anniversaries loaded:', anniversaries.length, 'items');
+      console.log('Tenure stats:', stats);
       setUpcomingAnniversaries(anniversaries);
       setTenureStats(stats);
     } catch (error) {
@@ -891,14 +895,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           </Card>
 
           {/* Tenure Statistics */}
-          {tenureStats && tenureStats.totalEmployees > 0 && (
-            <Card className="mt-4">
-              <CardHeader>
-                <CardTitle className="flex items-center text-base">
-                  <TrendingUp className="mr-2 h-4 w-4" />
-                  Tenure Overview
-                </CardTitle>
-              </CardHeader>
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="flex items-center text-base">
+                <TrendingUp className="mr-2 h-4 w-4" />
+                Tenure Overview
+              </CardTitle>
+            </CardHeader>
+            {tenureStats && tenureStats.totalEmployees > 0 ? (
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-center">
                   <div className="p-3 bg-primary/10 rounded-lg">
@@ -954,8 +958,12 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   </div>
                 </div>
               </CardContent>
-            </Card>
-          )}
+            ) : (
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Loading tenure statistics...</p>
+              </CardContent>
+            )}
+          </Card>
         </div>
 
         {/* Employee Details */}

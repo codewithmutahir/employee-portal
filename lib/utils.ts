@@ -221,3 +221,110 @@ export function formatBreakType(breakRecord: { type?: string; isPaid?: boolean; 
   return '';
 }
 
+// ==================== TENURE CALCULATION UTILITIES ====================
+
+export interface TenureInfo {
+  years: number;
+  months: number;
+  days: number;
+  totalDays: number;
+  label: string;
+  shortLabel: string;
+}
+
+/**
+ * Calculate tenure (time since hire date) - Client-side utility
+ */
+export function calculateTenure(hireDate: string | Date | undefined | null): TenureInfo | null {
+  if (!hireDate) return null;
+  
+  try {
+    const hire = typeof hireDate === 'string' ? new Date(hireDate) : hireDate;
+    if (isNaN(hire.getTime())) return null;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const hireClone = new Date(hire);
+    hireClone.setHours(0, 0, 0, 0);
+    
+    // Calculate total days
+    const totalDays = Math.floor((today.getTime() - hireClone.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (totalDays < 0) return null; // Future hire date
+    
+    // Calculate years, months, days
+    let years = today.getFullYear() - hireClone.getFullYear();
+    let months = today.getMonth() - hireClone.getMonth();
+    let days = today.getDate() - hireClone.getDate();
+    
+    // Adjust for negative days
+    if (days < 0) {
+      months--;
+      const lastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+      days += lastMonth.getDate();
+    }
+    
+    // Adjust for negative months
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+    
+    // Generate labels
+    let label = '';
+    let shortLabel = '';
+    
+    if (years > 0) {
+      label = `${years} year${years !== 1 ? 's' : ''}`;
+      shortLabel = `${years}y`;
+      if (months > 0) {
+        label += `, ${months} month${months !== 1 ? 's' : ''}`;
+        shortLabel += ` ${months}m`;
+      }
+    } else if (months > 0) {
+      label = `${months} month${months !== 1 ? 's' : ''}`;
+      shortLabel = `${months}m`;
+      if (days > 0 && months < 6) {
+        label += `, ${days} day${days !== 1 ? 's' : ''}`;
+      }
+    } else {
+      label = `${days} day${days !== 1 ? 's' : ''}`;
+      shortLabel = `${days}d`;
+    }
+    
+    return { years, months, days, totalDays, label, shortLabel };
+  } catch (error) {
+    console.error('Calculate tenure error:', error);
+    return null;
+  }
+}
+
+/**
+ * Get milestone type based on years of service
+ */
+export function getMilestoneType(years: number): 'none' | 'standard' | 'silver' | 'gold' | 'platinum' | 'diamond' {
+  if (years < 1) return 'none';
+  if (years >= 25) return 'diamond';
+  if (years >= 20) return 'platinum';
+  if (years >= 10) return 'gold';
+  if (years >= 5) return 'silver';
+  return 'standard';
+}
+
+/**
+ * Get tenure label for display
+ */
+export function getTenureLabel(years: number): string {
+  if (years === 1) return '1 Year';
+  if (years < 5) return `${years} Years`;
+  if (years === 5) return '5 Years (Silver)';
+  if (years < 10) return `${years} Years`;
+  if (years === 10) return '10 Years (Gold)';
+  if (years < 20) return `${years} Years`;
+  if (years === 20) return '20 Years (Platinum)';
+  if (years < 25) return `${years} Years`;
+  if (years === 25) return '25 Years (Diamond)';
+  return `${years} Years (Diamond)`;
+}
+

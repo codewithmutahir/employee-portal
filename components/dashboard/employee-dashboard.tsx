@@ -21,7 +21,7 @@ import {
   getEmployeeAttendanceStats,
   getEmployeeMonthlyStats,
 } from "@/app/actions/attendance";
-import { calculateTenure } from "@/app/actions/employees";
+import { calculateTenure } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate, formatTime, isToday } from "@/lib/utils";
 import {
