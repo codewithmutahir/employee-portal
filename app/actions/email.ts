@@ -530,3 +530,160 @@ export async function sendProfileUpdateEmail(
     category: 'profile-update',
   });
 }
+
+/**
+ * Send announcement email to multiple recipients
+ */
+export async function sendAnnouncementEmail(
+  recipients: string[],
+  title: string,
+  content: string,
+  priority: 'low' | 'normal' | 'high' | 'urgent',
+  createdByName: string
+): Promise<EmailResult> {
+  const priorityColors: Record<string, { bg: string; text: string; label: string }> = {
+    low: { bg: '#6b7280', text: '#374151', label: 'Low Priority' },
+    normal: { bg: '#3b82f6', text: '#1d4ed8', label: '' },
+    high: { bg: '#f59e0b', text: '#d97706', label: '⚠️ High Priority' },
+    urgent: { bg: '#ef4444', text: '#dc2626', label: '🚨 URGENT' },
+  };
+
+  const colors = priorityColors[priority] || priorityColors.normal;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, ${colors.bg} 0%, ${colors.text} 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">
+          📢 ${colors.label ? colors.label + ' - ' : ''}Company Announcement
+        </h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        ${priority === 'urgent' ? '<div style="background: #fef2f2; border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-bottom: 16px;"><p style="color: #dc2626; margin: 0; font-weight: bold;">⚠️ This is an urgent announcement. Please read immediately.</p></div>' : ''}
+        <h2 style="color: #111827; font-size: 20px; margin: 0 0 16px 0;">${title}</h2>
+        <div style="color: #374151; font-size: 16px; line-height: 1.6;">
+          ${content.replace(/\n/g, '<br>')}
+        </div>
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+          <p style="color: #6b7280; font-size: 14px; margin: 0;">
+            Posted by: <strong>${createdByName}</strong>
+          </p>
+          <p style="color: #6b7280; font-size: 14px; margin: 4px 0 0 0;">
+            ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <p style="color: #9ca3af; font-size: 14px; margin-top: 20px;">
+          Log in to the Employee Portal to view this announcement and mark it as read.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `${colors.label ? colors.label + '\n\n' : ''}COMPANY ANNOUNCEMENT\n\n${title}\n\n${content}\n\nPosted by: ${createdByName}\n\nLog in to the Employee Portal to view this announcement.`;
+
+  return sendEmail({
+    to: recipients,
+    subject: `📢 ${colors.label ? colors.label + ' - ' : ''}${title}`,
+    html,
+    text,
+    category: 'announcement',
+  });
+}
+
+/**
+ * Send password change confirmation email
+ */
+export async function sendPasswordChangeEmail(
+  employeeEmail: string,
+  employeeName: string
+): Promise<EmailResult> {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">🔒 Password Changed Successfully</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          Your Employee Portal password has been successfully changed.
+        </p>
+        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <p style="color: #92400e; margin: 0; font-weight: bold;">⚠️ Security Notice</p>
+          <p style="color: #92400e; margin: 8px 0 0 0; font-size: 14px;">
+            If you did not make this change, please contact HR immediately and secure your account.
+          </p>
+        </div>
+        <p style="color: #6b7280; font-size: 14px;">
+          Changed on: ${new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nYour Employee Portal password has been successfully changed.\n\nIf you did not make this change, please contact HR immediately.\n\nChanged on: ${new Date().toLocaleString()}`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: '🔒 Password Changed - Employee Portal',
+    html,
+    text,
+    category: 'security',
+  });
+}
+
+/**
+ * Send emergency contact update notification
+ */
+export async function sendEmergencyContactUpdateEmail(
+  employeeEmail: string,
+  employeeName: string,
+  action: 'added' | 'updated' | 'removed',
+  contactName: string
+): Promise<EmailResult> {
+  const actionText = {
+    added: 'added to',
+    updated: 'updated in',
+    removed: 'removed from',
+  };
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">👥 Emergency Contact Updated</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;">Dear ${employeeName},</p>
+        <p style="color: #374151; font-size: 16px;">
+          An emergency contact has been ${actionText[action]} your profile:
+        </p>
+        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <p style="color: #111827; margin: 0; font-weight: bold;">${contactName}</p>
+          <p style="color: #6b7280; margin: 4px 0 0 0; font-size: 14px;">
+            Status: ${action.charAt(0).toUpperCase() + action.slice(1)}
+          </p>
+        </div>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+          Log in to the Employee Portal to review your emergency contacts.
+        </p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `Dear ${employeeName},\n\nAn emergency contact (${contactName}) has been ${actionText[action]} your profile.\n\nLog in to the Employee Portal to review your emergency contacts.`;
+
+  return sendEmail({
+    to: employeeEmail,
+    subject: '👥 Emergency Contact Updated - Employee Portal',
+    html,
+    text,
+    category: 'profile-update',
+  });
+}

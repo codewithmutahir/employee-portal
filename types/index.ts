@@ -84,3 +84,99 @@ export interface BirthdayReminder {
   email: string;
 }
 
+// ==================== ANNOUNCEMENTS ====================
+
+export type AnnouncementPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type AnnouncementTarget = 'all' | 'employees' | 'management' | 'department';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  priority: AnnouncementPriority;
+  target: AnnouncementTarget;
+  targetDepartment?: string; // If target is 'department'
+  createdBy: string; // User ID
+  createdByName: string;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  expiresAt?: string; // ISO timestamp - auto-hide after this date
+  isActive: boolean;
+  isPinned: boolean;
+  readBy: string[]; // Array of employee IDs who have read
+}
+
+export interface AnnouncementReadReceipt {
+  announcementId: string;
+  employeeId: string;
+  readAt: string; // ISO timestamp
+}
+
+// ==================== EMERGENCY CONTACTS ====================
+
+export interface EmergencyContact {
+  id: string;
+  employeeId: string;
+  name: string;
+  relationship: string; // e.g., "Spouse", "Parent", "Sibling", "Friend"
+  phoneNumber: string;
+  email?: string;
+  address?: string;
+  isPrimary: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==================== EMPLOYEE PROFILE EXTENSIONS ====================
+
+export interface EmployeeProfile extends Employee {
+  profilePhotoUrl?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  emergencyContacts?: EmergencyContact[];
+  personalEmail?: string; // Non-work email
+  preferredName?: string; // Nickname
+  pronouns?: string;
+  bio?: string;
+  skills?: string[];
+  languages?: string[];
+  socialLinks?: {
+    linkedin?: string;
+    twitter?: string;
+    github?: string;
+  };
+  notificationPreferences?: {
+    emailNotifications: boolean;
+    announcementEmails: boolean;
+    reminderEmails: boolean;
+  };
+}
+
+// ==================== ACTIVITY LOG ====================
+
+export type ActivityType = 
+  | 'login'
+  | 'logout'
+  | 'clock_in'
+  | 'clock_out'
+  | 'profile_update'
+  | 'password_change'
+  | 'announcement_read'
+  | 'announcement_created'
+  | 'emergency_contact_added'
+  | 'emergency_contact_updated';
+
+export interface ActivityLog {
+  id: string;
+  employeeId: string;
+  activityType: ActivityType;
+  description: string;
+  metadata?: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+

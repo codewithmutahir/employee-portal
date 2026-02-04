@@ -38,6 +38,9 @@ import {
   Medal,
   Trophy,
   Gem,
+  Megaphone,
+  Settings,
+  LayoutDashboard,
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
@@ -45,6 +48,8 @@ import AttendanceHistory from "./attendance-history";
 import { FaceVerificationDialog } from "./face-verification-dialog";
 import { FaceEnrollment } from "./face-enrollment";
 import NotesSection from "./notes-section";
+import { ProfileSettings } from "./profile-settings";
+import { Announcements } from "./announcements";
 import {
   LineChart,
   Line,
@@ -78,6 +83,7 @@ export default function EmployeeDashboard({
   const [faceDescriptor, setFaceDescriptor] = useState<number[] | null>(null);
   const [faceDialogOpen, setFaceDialogOpen] = useState(false);
   const [faceDialogAction, setFaceDialogAction] = useState<"clockIn" | "clockOut">("clockIn");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "announcements" | "settings">("dashboard");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -315,13 +321,59 @@ export default function EmployeeDashboard({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Welcome, {employee.displayName}</h2>
-        <p className="text-muted-foreground">Employee Dashboard</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold">Welcome, {employee.displayName}</h2>
+          <p className="text-muted-foreground">Employee Dashboard</p>
+        </div>
+        
+        {/* Tab Navigation */}
+        <div className="flex gap-2 p-1 bg-muted rounded-lg">
+          <Button
+            variant={activeTab === "dashboard" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("dashboard")}
+            className="flex items-center gap-2"
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            <span className="hidden sm:inline">Dashboard</span>
+          </Button>
+          <Button
+            variant={activeTab === "announcements" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("announcements")}
+            className="flex items-center gap-2"
+          >
+            <Megaphone className="h-4 w-4" />
+            <span className="hidden sm:inline">Announcements</span>
+          </Button>
+          <Button
+            variant={activeTab === "settings" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("settings")}
+            className="flex items-center gap-2"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="hidden sm:inline">Settings</span>
+          </Button>
+        </div>
       </div>
 
-      {/* Face registration - show when not yet enrolled */}
-      {!faceDescriptor && (
+      {/* Announcements Tab */}
+      {activeTab === "announcements" && (
+        <Announcements employee={employee} isManagement={false} />
+      )}
+
+      {/* Settings Tab */}
+      {activeTab === "settings" && (
+        <ProfileSettings employee={employee} onProfileUpdate={loadData} />
+      )}
+
+      {/* Dashboard Tab */}
+      {activeTab === "dashboard" && (
+        <>
+          {/* Face registration - show when not yet enrolled */}
+          {!faceDescriptor && (
         <FaceEnrollment
           employeeId={employee.id}
           onEnrolled={() => loadData()}
@@ -762,6 +814,8 @@ export default function EmployeeDashboard({
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }

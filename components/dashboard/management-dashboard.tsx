@@ -17,7 +17,8 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone } from 'lucide-react';
+import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
@@ -1119,6 +1120,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
               </CardContent>
             )}
           </Card>
+
+          {/* Announcements */}
+          <div className="mt-4">
+            <Announcements employee={employee} isManagement={true} />
+          </div>
         </div>
 
         {/* Employee Details */}
