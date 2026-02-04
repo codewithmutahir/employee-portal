@@ -24,6 +24,7 @@ import {
 import { calculateTenure } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate, formatTime, isToday } from "@/lib/utils";
+import { useAuth } from "@/components/auth-provider";
 import {
   Clock,
   Coffee,
@@ -69,6 +70,7 @@ interface EmployeeDashboardProps {
 export default function EmployeeDashboard({
   employee,
 }: EmployeeDashboardProps) {
+  const { refreshEmployee } = useAuth();
   const [todayAttendance, setTodayAttendance] =
     useState<AttendanceRecord | null>(null);
   const [attendanceHistory, setAttendanceHistory] = useState<
@@ -366,7 +368,13 @@ export default function EmployeeDashboard({
 
       {/* Settings Tab */}
       {activeTab === "settings" && (
-        <ProfileSettings employee={employee} onProfileUpdate={loadData} />
+        <ProfileSettings 
+          employee={employee} 
+          onProfileUpdate={async () => {
+            await refreshEmployee();
+            await loadData();
+          }} 
+        />
       )}
 
       {/* Dashboard Tab */}

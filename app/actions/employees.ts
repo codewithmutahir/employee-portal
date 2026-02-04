@@ -72,6 +72,18 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
       hireDate: toISOString(data?.hireDate),
       createdAt: toISOString(data?.createdAt),
       updatedAt: toISOString(data?.updatedAt),
+      // Extended profile fields
+      address: data?.address,
+      city: data?.city,
+      state: data?.state,
+      zipCode: data?.zipCode,
+      country: data?.country,
+      personalEmail: data?.personalEmail,
+      preferredName: data?.preferredName,
+      pronouns: data?.pronouns,
+      bio: data?.bio,
+      profilePhotoUrl: data?.profilePhotoUrl,
+      notificationPreferences: data?.notificationPreferences,
     } as Employee;
   } catch (error: any) {
     console.error('Get employee error:', error);

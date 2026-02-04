@@ -60,22 +60,36 @@ interface ProfileSettingsProps {
   onProfileUpdate?: () => void;
 }
 
+interface ExtendedEmployee extends Employee {
+  profilePhotoUrl?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  personalEmail?: string;
+  preferredName?: string;
+  pronouns?: string;
+  bio?: string;
+}
+
 export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsProps) {
   const { toast } = useToast();
+  const extEmployee = employee as ExtendedEmployee;
   
-  // Profile form state
+  // Profile form state - initialize from employee data
   const [profileForm, setProfileForm] = useState({
-    displayName: employee.displayName || '',
-    phoneNumber: employee.phoneNumber || '',
-    address: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: '',
-    personalEmail: '',
-    preferredName: '',
-    pronouns: '',
-    bio: '',
+    displayName: extEmployee.displayName || '',
+    phoneNumber: extEmployee.phoneNumber || '',
+    address: extEmployee.address || '',
+    city: extEmployee.city || '',
+    state: extEmployee.state || '',
+    zipCode: extEmployee.zipCode || '',
+    country: extEmployee.country || '',
+    personalEmail: extEmployee.personalEmail || '',
+    preferredName: extEmployee.preferredName || '',
+    pronouns: extEmployee.pronouns || '',
+    bio: extEmployee.bio || '',
   });
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -110,6 +124,24 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
     reminderEmails: true,
   });
   const [prefsLoading, setPrefsLoading] = useState(false);
+
+  // Sync form state when employee data changes
+  useEffect(() => {
+    const ext = employee as ExtendedEmployee;
+    setProfileForm({
+      displayName: ext.displayName || '',
+      phoneNumber: ext.phoneNumber || '',
+      address: ext.address || '',
+      city: ext.city || '',
+      state: ext.state || '',
+      zipCode: ext.zipCode || '',
+      country: ext.country || '',
+      personalEmail: ext.personalEmail || '',
+      preferredName: ext.preferredName || '',
+      pronouns: ext.pronouns || '',
+      bio: ext.bio || '',
+    });
+  }, [employee]);
 
   // Load emergency contacts and notification preferences on mount
   useEffect(() => {
