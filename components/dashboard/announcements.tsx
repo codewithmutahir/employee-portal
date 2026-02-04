@@ -119,12 +119,15 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
 
   async function loadAnnouncements() {
     setLoading(true);
+    console.log('📢 Loading announcements for employee:', employee.id, 'isManagement:', isManagement, 'role:', employee.role);
     try {
       let data: Announcement[];
       
       if (isManagement) {
+        console.log('📢 Fetching ALL announcements (management view)');
         data = await getAllAnnouncements();
       } else {
+        console.log('📢 Fetching announcements for user:', employee.id, 'role:', employee.role, 'dept:', employee.department);
         data = await getAnnouncementsForUser(
           employee.id,
           employee.role,
@@ -132,13 +135,14 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
         );
       }
       
+      console.log('📢 Loaded', data.length, 'announcements');
       setAnnouncements(data);
       
       // Get unread count
       const unread = data.filter(a => !a.readBy.includes(employee.id)).length;
       setUnreadCount(unread);
     } catch (error) {
-      console.error('Failed to load announcements:', error);
+      console.error('❌ Failed to load announcements:', error);
       toast({
         title: 'Error',
         description: 'Failed to load announcements',

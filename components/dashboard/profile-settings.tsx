@@ -151,11 +151,13 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
 
   async function loadEmergencyContacts() {
     setContactsLoading(true);
+    console.log('📞 Loading emergency contacts for:', employee.id);
     try {
       const contacts = await getEmergencyContacts(employee.id);
+      console.log('📞 Loaded', contacts.length, 'emergency contacts:', contacts);
       setEmergencyContacts(contacts);
     } catch (error) {
-      console.error('Failed to load emergency contacts:', error);
+      console.error('❌ Failed to load emergency contacts:', error);
     } finally {
       setContactsLoading(false);
     }

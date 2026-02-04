@@ -100,17 +100,25 @@ export async function getAnnouncementsForUser(
   try {
     const now = new Date();
     
-    // Get all active announcements
+    console.log('📢 Fetching announcements for user:', userId, 'role:', userRole, 'dept:', userDepartment);
+    
+    // Get all announcements (simple query - no index needed, sort in memory)
     const snapshot = await adminDb.collection('announcements')
-      .where('isActive', '==', true)
-      .orderBy('createdAt', 'desc')
+      .limit(100)
       .get();
+
+    console.log('📢 Found', snapshot.docs.length, 'total announcements in collection');
 
     const announcements: Announcement[] = [];
 
     snapshot.docs.forEach(doc => {
       const announcement = toAnnouncement(doc);
       if (!announcement) return;
+
+      // Check if active
+      if (!announcement.isActive) {
+        return;
+      }
 
       // Check if expired
       if (announcement.expiresAt && new Date(announcement.expiresAt) < now) {
@@ -119,6 +127,8 @@ export async function getAnnouncementsForUser(
 
       // Check target audience
       const target = announcement.target;
+      
+      console.log('📢 Checking announcement:', announcement.title, 'target:', target);
       
       if (target === 'all') {
         announcements.push(announcement);
@@ -131,6 +141,8 @@ export async function getAnnouncementsForUser(
       }
     });
 
+    console.log('📢 Returning', announcements.length, 'announcements for user');
+    
     // Sort: pinned first, then by date
     return announcements.sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
@@ -138,7 +150,7 @@ export async function getAnnouncementsForUser(
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   } catch (error: any) {
-    console.error('Get announcements error:', error);
+    console.error('❌ Get announcements error:', error);
     return [];
   }
 }
@@ -148,14 +160,24 @@ export async function getAnnouncementsForUser(
  */
 export async function getAllAnnouncements(): Promise<Announcement[]> {
   try {
+    console.log('📢 Fetching ALL announcements for management');
+    
     const snapshot = await adminDb.collection('announcements')
-      .orderBy('createdAt', 'desc')
       .limit(100)
       .get();
 
-    return snapshot.docs
+    console.log('📢 Found', snapshot.docs.length, 'announcements in collection');
+
+    const announcements = snapshot.docs
       .map(doc => toAnnouncement(doc))
       .filter((a): a is Announcement => a !== null);
+    
+    // Sort by pinned first, then by date (newest first)
+    return announcements.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   } catch (error: any) {
     console.error('Get all announcements error:', error);
     return [];
