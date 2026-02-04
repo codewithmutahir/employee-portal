@@ -155,30 +155,46 @@ export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) 
 
     setCapturing(true);
     setError(null);
+    
     try {
+      console.log("📸 Attempting face capture...");
+      console.log("   Video ready state:", video.readyState);
+      console.log("   Video dimensions:", video.videoWidth, "x", video.videoHeight);
+      
+      // Use lower threshold for enrollment to make it easier
       const det = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
+          inputSize: 320,
+          scoreThreshold: 0.3  // Lower threshold for better detection
+        }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
       if (!det) {
-        setError("No face detected. Position your face in the frame and try again.");
+        console.log("❌ No face detected during capture");
+        setError("No face detected. Make sure your face is well-lit, centered in the frame, and try again.");
         setCapturing(false);
         return;
       }
+      
+      console.log("✅ Face detected with score:", det.detection.score.toFixed(2));
 
       const descriptor = Array.from(det.descriptor);
+      console.log("📝 Saving face descriptor...");
       const result = await saveEmployeeFaceDescriptor(employeeId, descriptor);
 
       if (result.success) {
+        console.log("✅ Face registered successfully!");
         toast({ title: "Face registered successfully" });
         stopCamera();
         onEnrolled();
       } else {
+        console.error("❌ Save failed:", result.error);
         setError(result.error || "Failed to save face data.");
       }
     } catch (err: any) {
-      setError(err?.message || "Face capture failed.");
+      console.error("❌ Capture error:", err);
+      setError(err?.message || "Face capture failed. Try refreshing the page.");
     }
     setCapturing(false);
   }

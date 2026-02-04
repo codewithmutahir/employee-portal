@@ -21,8 +21,10 @@ const MODELS_BASE = "/models";
 const FACE_MATCH_THRESHOLD = 0.45;
 // How long to hold face steady for verification (in ms)
 const HOLD_DURATION_MS = 2500;
-// Minimum confidence score for face detection
-const MIN_DETECTION_SCORE = 0.5;
+// Minimum confidence score for face detection - lowered for better detection
+const MIN_DETECTION_SCORE = 0.3;
+// Input size for face detector (higher = more accurate but slower)
+const DETECTOR_INPUT_SIZE = 320;
 
 type Step = "loading" | "camera" | "detecting" | "verifying" | "success" | "error";
 
@@ -56,6 +58,8 @@ export function FaceVerificationDialog({
   const modelsLoadedRef = useRef(false);
   const detectionStartTimeRef = useRef<number | null>(null);
   const verifiedRef = useRef(false);
+  const detectionLoopStartedRef = useRef(false);
+  const noFaceCountRef = useRef(0);
   
   const { toast } = useToast();
 
@@ -79,6 +83,8 @@ export function FaceVerificationDialog({
       setFaceDetected(false);
       detectionStartTimeRef.current = null;
       verifiedRef.current = false;
+      detectionLoopStartedRef.current = false;
+      noFaceCountRef.current = 0;
       return;
     }
 
@@ -201,25 +207,45 @@ export function FaceVerificationDialog({
         
         const det = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
-            inputSize: 416,  // Higher resolution for better accuracy
+            inputSize: DETECTOR_INPUT_SIZE,
             scoreThreshold: MIN_DETECTION_SCORE 
           }))
           .withFaceLandmarks()
           .withFaceDescriptor();
+        
+        // Log detection status every 60 frames for debugging
+        if (frameCount % 60 === 0) {
+          console.log(`🔍 Detection frame ${frameCount}:`, det ? `Face found (score: ${det.detection.score.toFixed(2)})` : 'No face');
+        }
 
         if (!det) {
           // No face detected - reset progress
           setFaceDetected(false);
           detectionStartTimeRef.current = null;
           setProgress(0);
+          noFaceCountRef.current++;
           
-          if (frameCount % 30 === 0) {
-            setStatusText("Looking for your face...");
+          // Provide helpful feedback based on how long we've been trying
+          if (noFaceCountRef.current % 60 === 0) {
+            const seconds = Math.floor(noFaceCountRef.current / 30);
+            if (seconds < 3) {
+              setStatusText("Looking for your face...");
+            } else if (seconds < 6) {
+              setStatusText("Make sure your face is well-lit and centered");
+            } else if (seconds < 10) {
+              setStatusText("Try moving closer to the camera");
+            } else {
+              setStatusText("Having trouble? Try better lighting or refresh the page");
+            }
+            console.log(`⏳ No face detected for ~${seconds}s`);
           }
           
           rafId = requestAnimationFrame(detect);
           return;
         }
+        
+        // Face found - reset no-face counter
+        noFaceCountRef.current = 0;
 
         // Check detection confidence
         const detectionScore = det.detection.score;
@@ -331,6 +357,7 @@ export function FaceVerificationDialog({
     setStatusText("Position your face in the frame");
     detectionStartTimeRef.current = null;
     verifiedRef.current = false;
+    noFaceCountRef.current = 0;
   };
 
   return (
@@ -406,6 +433,11 @@ export function FaceVerificationDialog({
               <span className={`h-2 w-2 rounded-full ${faceDetected ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
               <span className="text-muted-foreground">{statusText}</span>
             </div>
+            {!faceDetected && (
+              <p className="text-xs text-center text-muted-foreground">
+                Tip: Ensure good lighting and face the camera directly
+              </p>
+            )}
           </div>
         )}
         

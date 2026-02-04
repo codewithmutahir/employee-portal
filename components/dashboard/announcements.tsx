@@ -35,7 +35,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Switch } from '@/components/ui/switch';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 import { Announcement, AnnouncementPriority, AnnouncementTarget, Employee } from '@/types';
 import {
   getAnnouncementsForUser,
