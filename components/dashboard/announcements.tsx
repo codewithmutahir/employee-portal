@@ -516,7 +516,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
                   } ${!announcement.isActive && isManagement ? 'opacity-60' : ''}`}
                   onClick={() => !isRead && handleMarkAsRead(announcement.id)}
                 >
-                  <div className="flex justify-between items-start gap-4">
+                  <div className="flex flex-col justify-between items-start gap-[20px] divide-x">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-2">
                         {announcement.isPinned && (
