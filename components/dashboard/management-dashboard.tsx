@@ -157,13 +157,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function loadAnniversaries() {
     try {
-      console.log('Loading anniversaries...');
       const [anniversaries, stats] = await Promise.all([
-        getUpcomingAnniversaries(60, 'employee'), // 60 days to catch more
+        getUpcomingAnniversaries(60, 'employee'),
         getTenureStatistics(),
       ]);
-      console.log('Anniversaries loaded:', anniversaries.length, 'items');
-      console.log('Tenure stats:', stats);
       setUpcomingAnniversaries(anniversaries);
       setTenureStats(stats);
     } catch (error) {

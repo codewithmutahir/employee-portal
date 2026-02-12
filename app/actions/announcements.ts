@@ -100,14 +100,9 @@ export async function getAnnouncementsForUser(
   try {
     const now = new Date();
     
-    console.log('📢 Fetching announcements for user:', userId, 'role:', userRole, 'dept:', userDepartment);
-    
-    // Get all announcements (simple query - no index needed, sort in memory)
     const snapshot = await adminDb.collection('announcements')
       .limit(100)
       .get();
-
-    console.log('📢 Found', snapshot.docs.length, 'total announcements in collection');
 
     const announcements: Announcement[] = [];
 
@@ -128,8 +123,6 @@ export async function getAnnouncementsForUser(
       // Check target audience
       const target = announcement.target;
       
-      console.log('📢 Checking announcement:', announcement.title, 'target:', target);
-      
       if (target === 'all') {
         announcements.push(announcement);
       } else if (target === 'employees' && userRole === 'employee') {
@@ -141,8 +134,6 @@ export async function getAnnouncementsForUser(
       }
     });
 
-    console.log('📢 Returning', announcements.length, 'announcements for user');
-    
     // Sort: pinned first, then by date
     return announcements.sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
@@ -160,13 +151,9 @@ export async function getAnnouncementsForUser(
  */
 export async function getAllAnnouncements(): Promise<Announcement[]> {
   try {
-    console.log('📢 Fetching ALL announcements for management');
-    
     const snapshot = await adminDb.collection('announcements')
       .limit(100)
       .get();
-
-    console.log('📢 Found', snapshot.docs.length, 'announcements in collection');
 
     const announcements = snapshot.docs
       .map(doc => toAnnouncement(doc))

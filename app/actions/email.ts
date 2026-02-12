@@ -64,7 +64,6 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     }
 
     const data = await response.json();
-    console.log('Email sent successfully:', data);
     
     return { 
       success: true, 

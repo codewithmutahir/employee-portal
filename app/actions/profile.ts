@@ -188,14 +188,9 @@ export async function getEmergencyContacts(
   employeeId: string
 ): Promise<EmergencyContact[]> {
   try {
-    console.log('📞 Fetching emergency contacts for employee:', employeeId);
-    
-    // Simple query - just filter by employeeId, sort in memory
     const snapshot = await adminDb.collection('emergency_contacts')
       .where('employeeId', '==', employeeId)
       .get();
-
-    console.log('📞 Found', snapshot.docs.length, 'emergency contacts');
 
     const contacts = snapshot.docs.map(doc => {
       const data = doc.data();
@@ -220,7 +215,7 @@ export async function getEmergencyContacts(
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
   } catch (error: any) {
-    console.error('❌ Get emergency contacts error:', error);
+    console.error('Get emergency contacts error:', error);
     return [];
   }
 }

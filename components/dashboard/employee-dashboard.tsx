@@ -111,14 +111,8 @@ export default function EmployeeDashboard({
       setMonthlyStats(monthly);
       setFaceDescriptor(descriptor);
       
-      // Log face descriptor status for debugging
-      console.log("📊 Face descriptor loaded:", {
-        hasDescriptor: !!descriptor,
-        length: descriptor?.length,
-        isValid: descriptor?.length === 128
-      });
     } catch (error) {
-      console.error("❌ Error loading employee data:", error);
+      console.error("Error loading employee data:", error);
       toast({
         title: "Error",
         description: "Failed to load data",
@@ -213,7 +207,8 @@ export default function EmployeeDashboard({
 
   const hasActiveBreak = todayAttendance?.breaks?.some((b) => !b.endTime);
   const canClockIn = !todayAttendance?.clockIn;
-  const canClockOut = todayAttendance?.clockIn && !todayAttendance?.clockOut;
+  const isClockedInNotOut = todayAttendance?.clockIn && !todayAttendance?.clockOut;
+  const canClockOut = isClockedInNotOut && !hasActiveBreak;
 
   if (loading) {
     return (
@@ -542,27 +537,31 @@ export default function EmployeeDashboard({
                     )}
                   </>
                 )}
-                {canClockOut && (
+                {isClockedInNotOut && (
                   <>
-                    {faceDescriptor ? (
-                      <Button
-                        onClick={openFaceClockOut}
-                        disabled={actionLoading !== null}
-                        className="w-full sm:w-auto"
-                      >
-                        <ScanFace className="mr-2 h-4 w-4" />
-                        Clock Out (Face)
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleClockOut}
-                        disabled={actionLoading !== null}
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                      >
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Clock Out (no face)
-                      </Button>
+                    {canClockOut && (
+                      <>
+                        {faceDescriptor ? (
+                          <Button
+                            onClick={openFaceClockOut}
+                            disabled={actionLoading !== null}
+                            className="w-full sm:w-auto"
+                          >
+                            <ScanFace className="mr-2 h-4 w-4" />
+                            Clock Out (Face)
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={handleClockOut}
+                            disabled={actionLoading !== null}
+                            variant="outline"
+                            className="w-full sm:w-auto"
+                          >
+                            <LogOut className="mr-2 h-4 w-4" />
+                            Clock Out (no face)
+                          </Button>
+                        )}
+                      </>
                     )}
                     {!hasActiveBreak ? (
                       <Button

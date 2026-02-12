@@ -97,7 +97,6 @@ exports.checkBirthdays = functions.pubsub
       });
 
       if (upcomingBirthdays.length === 0) {
-        console.log('No upcoming birthdays in the next 7 days');
         return null;
       }
 
@@ -155,7 +154,6 @@ exports.checkBirthdays = functions.pubsub
         htmlContent,
         'birthday-reminder'
       );
-      console.log(`Birthday reminder sent for ${upcomingBirthdays.length} employees`);
 
       return null;
     } catch (error) {
@@ -235,7 +233,6 @@ exports.checkAnniversaries = functions.pubsub
       });
 
       if (upcomingAnniversaries.length === 0) {
-        console.log('No upcoming milestone anniversaries in the next 14 days');
         return null;
       }
 
@@ -284,7 +281,6 @@ exports.checkAnniversaries = functions.pubsub
         htmlContent,
         'anniversary-reminder'
       );
-      console.log(`Anniversary reminder sent for ${upcomingAnniversaries.length} employees`);
 
       return null;
     } catch (error) {

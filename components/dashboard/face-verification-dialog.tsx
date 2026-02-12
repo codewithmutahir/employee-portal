@@ -98,21 +98,18 @@ export function FaceVerificationDialog({
 
     async function init() {
       try {
-        console.log("🚀 Initializing face verification...");
         setStatusText("Loading face recognition...");
         
         const faceapi = await import("face-api.js");
         faceApiRef.current = faceapi;
 
         if (!modelsLoadedRef.current) {
-          console.log("📦 Loading models...");
           await Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
             faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
             faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
           ]);
           modelsLoadedRef.current = true;
-          console.log("✅ Models loaded");
         }
 
         if (cancelled) return;
@@ -159,11 +156,10 @@ export function FaceVerificationDialog({
         setStep("detecting");
         setCameraReady(true);
         setStatusText("Position your face in the frame");
-        console.log("✅ Camera ready");
         
       } catch (err: any) {
         if (!cancelled) {
-          console.error("❌ Init error:", err);
+          console.error("Face verification init error:", err);
           setStep("error");
           setError(err?.message || "Failed to start camera. Please allow camera access.");
         }
@@ -212,11 +208,6 @@ export function FaceVerificationDialog({
           }))
           .withFaceLandmarks()
           .withFaceDescriptor();
-        
-        // Log detection status every 60 frames for debugging
-        if (frameCount % 60 === 0) {
-          console.log(`🔍 Detection frame ${frameCount}:`, det ? `Face found (score: ${det.detection.score.toFixed(2)})` : 'No face');
-        }
 
         if (!det) {
           // No face detected - reset progress
@@ -237,7 +228,6 @@ export function FaceVerificationDialog({
             } else {
               setStatusText("Having trouble? Try better lighting or refresh the page");
             }
-            console.log(`⏳ No face detected for ~${seconds}s`);
           }
           
           rafId = requestAnimationFrame(detect);
@@ -251,7 +241,6 @@ export function FaceVerificationDialog({
         const detectionScore = det.detection.score;
         if (detectionScore < MIN_DETECTION_SCORE) {
           if (frameCount % 30 === 0) {
-            console.log("⚠️ Low detection score:", detectionScore);
             setStatusText("Move closer or improve lighting...");
           }
           rafId = requestAnimationFrame(detect);
@@ -264,7 +253,6 @@ export function FaceVerificationDialog({
         // Start timer if not already started
         if (!detectionStartTimeRef.current) {
           detectionStartTimeRef.current = Date.now();
-          console.log("✅ Face detected with score:", detectionScore.toFixed(2));
         }
         
         const elapsed = Date.now() - detectionStartTimeRef.current;
@@ -289,13 +277,8 @@ export function FaceVerificationDialog({
           // Verify face match with STRICT threshold
           const descriptor = Array.from(det.descriptor);
           const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
-          console.log("📊 Face match check:");
-          console.log("   Distance:", distance.toFixed(4));
-          console.log("   Threshold:", FACE_MATCH_THRESHOLD);
-          console.log("   Result:", distance < FACE_MATCH_THRESHOLD ? "MATCH ✅" : "NO MATCH ❌");
           
           if (distance < FACE_MATCH_THRESHOLD) {
-            console.log("✅ Face matched! Identity verified.");
             setStep("success");
             setStatusText("Verified successfully!");
             
@@ -305,13 +288,6 @@ export function FaceVerificationDialog({
               onOpenChange(false);
             }, 800);
           } else {
-            // Face detected but doesn't match the registered face
-            console.log("❌ Face did NOT match registered face!");
-            console.log("   This could mean:");
-            console.log("   - Different person trying to clock in");
-            console.log("   - Face registration needs to be redone");
-            console.log("   - Poor lighting/angle during verification");
-            
             setStep("error");
             
             // Give specific feedback based on how far off it was
@@ -328,7 +304,7 @@ export function FaceVerificationDialog({
         
       } catch (err: any) {
         if (frameCount % 60 === 0) {
-          console.error("Detection error:", err?.message);
+          console.error("Face detection error:", err?.message);
         }
       }
       

@@ -55,12 +55,17 @@ export async function clockOut(employeeId: string): Promise<{ success: boolean; 
       return { success: false, error: 'Already clocked out today' };
     }
 
+    const breaks = (data.breaks || []) as BreakRecord[];
+    const hasActiveBreak = breaks.some((b: BreakRecord) => !b.endTime);
+    if (hasActiveBreak) {
+      return { success: false, error: 'End your break before clocking out' };
+    }
+
     const now = FieldValue.serverTimestamp();
     const clockInTime = data.clockIn.toDate().toISOString();
     const clockOutTime = new Date().toISOString();
 
     // Calculate total hours
-    const breaks = (data.breaks || []) as BreakRecord[];
     const totalHours = calculateHours(clockInTime, clockOutTime, breaks);
 
     await attendanceRef.update({
