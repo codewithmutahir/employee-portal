@@ -309,6 +309,63 @@ export async function sendNotificationEmail(
 }
 
 /**
+ * Notify management when an employee reports an issue
+ */
+export async function sendIssueReportedEmail(
+  to: string | string[],
+  issue: {
+    title: string;
+    description: string;
+    category: string;
+    createdByName: string;
+    createdByEmail: string;
+    createdAt: string;
+    issueId: string;
+  }
+): Promise<EmailResult> {
+  const dateStr = new Date(issue.createdAt).toLocaleString();
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">⚠️ New Issue Reported</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;"><strong>${escapeHtml(issue.title)}</strong></p>
+        <p style="color: #6b7280; font-size: 14px; margin: 8px 0;">Category: <strong>${escapeHtml(issue.category)}</strong></p>
+        <p style="color: #374151; font-size: 14px; margin: 12px 0; white-space: pre-wrap;">${escapeHtml(issue.description)}</p>
+        <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 16px 0;">
+          <p style="color: #1e40af; margin: 0; font-size: 14px;"><strong>Reported by:</strong> ${escapeHtml(issue.createdByName)} (${escapeHtml(issue.createdByEmail)})</p>
+          <p style="color: #1e40af; margin: 4px 0 0 0; font-size: 14px;"><strong>When:</strong> ${dateStr}</p>
+        </div>
+        <p style="color: #6b7280; font-size: 14px;">Please log in to the Employee Portal management dashboard to view and manage this issue.</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `New Issue Reported\n\nTitle: ${issue.title}\nCategory: ${issue.category}\n\n${issue.description}\n\nReported by: ${issue.createdByName} (${issue.createdByEmail})\nWhen: ${dateStr}\n\nPlease log in to the Employee Portal management dashboard to view and manage this issue.`;
+
+  return sendEmail({
+    to,
+    subject: `⚠️ Issue reported: ${issue.title}`,
+    html,
+    text,
+    category: 'issue-reported',
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
  * Send employee termination notification
  */
 export async function sendTerminationEmail(

@@ -180,3 +180,24 @@ export interface ActivityLog {
   createdAt: string;
 }
 
+// ==================== REPORTED ISSUES ====================
+
+export type IssueStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+
+export type IssueCategory = 'technical' | 'access' | 'policy' | 'facility' | 'payroll' | 'other';
+
+export interface Issue {
+  id: string;
+  title: string;
+  description: string;
+  category: IssueCategory;
+  status: IssueStatus;
+  createdBy: string;       // Employee ID
+  createdByName: string;
+  createdByEmail: string;
+  createdAt: string;       // ISO timestamp
+  updatedAt: string;       // ISO timestamp
+  resolvedAt?: string;     // ISO timestamp
+  managementNote?: string;  // Optional note from management
+}
+

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Employee, AttendanceRecord, Compensation, Note } from '@/types';
+import { Employee, AttendanceRecord, Compensation, Note, Issue, IssueStatus } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,9 +15,10 @@ import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
 import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/actions/attendance';
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
+import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
@@ -45,6 +46,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [employeesLoading, setEmployeesLoading] = useState(true);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [reportsLoading, setReportsLoading] = useState(true);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issuesLoading, setIssuesLoading] = useState(true);
+  const [issueStatusUpdating, setIssueStatusUpdating] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Get unique departments
@@ -268,7 +272,37 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     loadBirthdays();
     loadAnniversaries();
     loadManagementReports();
+    loadIssues();
   }, []);
+
+  async function loadIssues() {
+    setIssuesLoading(true);
+    try {
+      const list = await getIssues();
+      setIssues(list);
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load reported issues', variant: 'destructive' });
+    } finally {
+      setIssuesLoading(false);
+    }
+  }
+
+  async function handleUpdateIssueStatus(issueId: string, status: IssueStatus) {
+    setIssueStatusUpdating(issueId);
+    try {
+      const result = await updateIssueStatus(issueId, status);
+      if (result.success) {
+        toast({ title: 'Issue updated', description: `Status set to ${status.replace('_', ' ')}` });
+        await loadIssues();
+      } else {
+        toast({ title: 'Failed to update', description: result.error, variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to update issue', variant: 'destructive' });
+    } finally {
+      setIssueStatusUpdating(null);
+    }
+  }
 
   async function loadManagementReports() {
     setReportsLoading(true);
@@ -1750,6 +1784,84 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             </Card>
           )}
         </div>
+      </div>
+
+      {/* Reported issues from employees */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <AlertCircle className="h-6 w-6" />
+            Reported issues
+          </h2>
+          <Button variant="outline" size="sm" onClick={loadIssues} disabled={issuesLoading}>
+            {issuesLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+          </Button>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Issues reported by employees</CardTitle>
+            <CardDescription>Who reported, when, and what. Management receives an email for each new issue.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {issuesLoading ? (
+              <p className="text-sm text-muted-foreground">Loading issues...</p>
+            ) : issues.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No issues reported yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {issues.map((issue) => (
+                  <div key={issue.id} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{issue.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          <span className="capitalize">{issue.category}</span>
+                          {' · '}
+                          Reported by <strong>{issue.createdByName}</strong> ({issue.createdByEmail}) on {formatDate(issue.createdAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          issue.status === 'open' ? 'bg-amber-100 text-amber-800' :
+                          issue.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                          issue.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {issue.status.replace('_', ' ')}
+                        </span>
+                        {issueStatusUpdating === issue.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Select
+                            value={issue.status}
+                            onValueChange={(value) => handleUpdateIssueStatus(issue.id, value as IssueStatus)}
+                          >
+                            <SelectTrigger className="w-[140px] h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="in_progress">In progress</SelectItem>
+                              <SelectItem value="resolved">Resolved</SelectItem>
+                              <SelectItem value="closed">Closed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{issue.description}</p>
+                    {issue.managementNote && (
+                      <div className="text-sm bg-muted/50 rounded p-2">
+                        <span className="font-medium text-muted-foreground">Management note: </span>
+                        {issue.managementNote}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Management Reports & Insights */}

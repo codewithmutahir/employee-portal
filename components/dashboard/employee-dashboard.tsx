@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   clockIn,
   clockOut,
@@ -42,9 +45,13 @@ import {
   Megaphone,
   Settings,
   LayoutDashboard,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
+import { createIssue } from "@/app/actions/issues";
+import type { IssueCategory } from "@/types";
 import AttendanceHistory from "./attendance-history";
 import { FaceVerificationDialog } from "./face-verification-dialog";
 import { FaceEnrollment } from "./face-enrollment";
@@ -86,6 +93,8 @@ export default function EmployeeDashboard({
   const [faceDialogOpen, setFaceDialogOpen] = useState(false);
   const [faceDialogAction, setFaceDialogAction] = useState<"clockIn" | "clockOut">("clockIn");
   const [activeTab, setActiveTab] = useState<"dashboard" | "announcements" | "settings">("dashboard");
+  const [issueForm, setIssueForm] = useState({ title: "", description: "", category: "other" as IssueCategory });
+  const [issueSubmitting, setIssueSubmitting] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -209,6 +218,36 @@ export default function EmployeeDashboard({
   const canClockIn = !todayAttendance?.clockIn;
   const isClockedInNotOut = todayAttendance?.clockIn && !todayAttendance?.clockOut;
   const canClockOut = isClockedInNotOut && !hasActiveBreak;
+
+  async function handleReportIssue() {
+    if (!issueForm.title.trim()) {
+      toast({ title: "Title required", description: "Please enter a title for the issue", variant: "destructive" });
+      return;
+    }
+    if (!issueForm.description.trim()) {
+      toast({ title: "Description required", description: "Please describe the issue", variant: "destructive" });
+      return;
+    }
+    setIssueSubmitting(true);
+    try {
+      const result = await createIssue(
+        { title: issueForm.title.trim(), description: issueForm.description.trim(), category: issueForm.category },
+        employee.id,
+        employee.displayName,
+        employee.email
+      );
+      if (result.success) {
+        toast({ title: "Issue reported", description: "Management has been notified and will look into it." });
+        setIssueForm({ title: "", description: "", category: "other" });
+      } else {
+        toast({ title: "Failed to report issue", description: result.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || "Failed to report issue", variant: "destructive" });
+    } finally {
+      setIssueSubmitting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -606,6 +645,72 @@ export default function EmployeeDashboard({
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Report an issue */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5" />
+            Report an issue
+          </CardTitle>
+          <CardDescription>
+            Something wrong? Report it and management will be notified by email.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="issue-title">Title</Label>
+            <Input
+              id="issue-title"
+              placeholder="Brief summary of the issue"
+              value={issueForm.title}
+              onChange={(e) => setIssueForm((f) => ({ ...f, title: e.target.value }))}
+              disabled={issueSubmitting}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="issue-category">Category</Label>
+            <select
+              id="issue-category"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              value={issueForm.category}
+              onChange={(e) => setIssueForm((f) => ({ ...f, category: e.target.value as IssueCategory }))}
+              disabled={issueSubmitting}
+            >
+              <option value="technical">Technical</option>
+              <option value="access">Access / Login</option>
+              <option value="policy">Policy</option>
+              <option value="facility">Facility</option>
+              <option value="payroll">Payroll</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="issue-description">Description</Label>
+            <Textarea
+              id="issue-description"
+              placeholder="Describe the issue in detail..."
+              value={issueForm.description}
+              onChange={(e) => setIssueForm((f) => ({ ...f, description: e.target.value }))}
+              rows={4}
+              disabled={issueSubmitting}
+            />
+          </div>
+          <Button onClick={handleReportIssue} disabled={issueSubmitting}>
+            {issueSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <AlertCircle className="mr-2 h-4 w-4" />
+                Submit issue
+              </>
+            )}
+          </Button>
         </CardContent>
       </Card>
 
