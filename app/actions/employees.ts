@@ -1,9 +1,11 @@
 'use server';
 
+import { randomBytes } from 'crypto';
 import { adminDb } from '@/lib/firebase/admin';
 import { adminAuth } from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { Employee, Compensation } from '@/types';
+import { sendWelcomeEmail } from '@/app/actions/email';
 
 // Helper function to safely convert any date format to ISO string
 function toISOString(value: any): string | undefined {
@@ -211,6 +213,55 @@ export async function createEmployee(
   } catch (error: any) {
     console.error('Create employee error:', error);
     return { success: false, error: error.message || 'Failed to create employee' };
+  }
+}
+
+/** Generate a random temporary password (12 chars, no ambiguous characters) */
+function generateTempPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  const bytes = randomBytes(12);
+  let s = '';
+  for (let i = 0; i < 12; i++) s += chars[bytes[i]! % chars.length];
+  return s;
+}
+
+/**
+ * Resend login credentials to an employee: sets a new temporary password in Firebase Auth
+ * and sends a welcome-style email with the new password.
+ */
+export async function resendCredentials(
+  employeeId: string,
+  _requestedBy: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const emp = await getEmployee(employeeId);
+    if (!emp) {
+      return { success: false, error: 'Employee not found' };
+    }
+    if (!emp.email) {
+      return { success: false, error: 'Employee has no email address' };
+    }
+
+    const temporaryPassword = generateTempPassword();
+
+    await adminAuth.updateUser(employeeId, {
+      password: temporaryPassword,
+    });
+
+    const emailResult = await sendWelcomeEmail(
+      emp.email,
+      emp.displayName || 'Employee',
+      temporaryPassword
+    );
+
+    if (!emailResult.success) {
+      return { success: false, error: emailResult.error || 'Failed to send credentials email' };
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('Resend credentials error:', error);
+    return { success: false, error: error.message || 'Failed to resend credentials' };
   }
 }
 

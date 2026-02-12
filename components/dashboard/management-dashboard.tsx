@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, WorkAnniversary } from '@/app/actions/employees';
+import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, resendCredentials, WorkAnniversary } from '@/app/actions/employees';
 import { sendWelcomeEmail, sendNotificationEmail, sendTerminationEmail, sendReactivationEmail, sendCompensationUpdateEmail, sendProfileUpdateEmail } from '@/app/actions/email';
 import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
@@ -17,7 +17,7 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
@@ -39,6 +39,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [departmentStats, setDepartmentStats] = useState<any>(null);
   const [workforceInsights, setWorkforceInsights] = useState<any>(null);
   const [sendingEmployeeEmail, setSendingEmployeeEmail] = useState(false);
+  const [resendCredentialsLoading, setResendCredentialsLoading] = useState(false);
+  const [resendCredentialsDialogOpen, setResendCredentialsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [employeesLoading, setEmployeesLoading] = useState(true);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
@@ -200,6 +202,34 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       });
     } finally {
       setSendingEmployeeEmail(false);
+    }
+  }
+
+  async function handleResendCredentials() {
+    if (!selectedEmployee) return;
+    setResendCredentialsLoading(true);
+    try {
+      const result = await resendCredentials(selectedEmployee.id, employee.id);
+      if (result.success) {
+        toast({
+          title: 'Credentials sent',
+          description: `A new temporary password was set and sent to ${selectedEmployee.email}. They should change it after first login.`,
+        });
+      } else {
+        toast({
+          title: 'Failed to send credentials',
+          description: result.error || 'Could not resend credentials',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to resend credentials',
+        variant: 'destructive',
+      });
+    } finally {
+      setResendCredentialsLoading(false);
     }
   }
 
@@ -1137,18 +1167,52 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <CardDescription>{selectedEmployee.email}</CardDescription>
                     </div>
                     <div className="flex gap-2 flex-wrap">
+                      <AlertDialog open={resendCredentialsDialogOpen} onOpenChange={setResendCredentialsDialogOpen}>
+                        <AlertDialogTrigger asChild>
+                          <Button 
+                            size="sm" 
+                            disabled={resendCredentialsLoading || sendingEmployeeEmail}
+                          >
+                            {resendCredentialsLoading ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <KeyRound className="mr-2 h-4 w-4" />
+                            )}
+                            Resend credentials
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Resend login credentials</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will set a new temporary password for {selectedEmployee.displayName} and email it to {selectedEmployee.email}. Their current password will stop working. They should change the password after first login. Continue?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={async () => {
+                                setResendCredentialsDialogOpen(false);
+                                await handleResendCredentials();
+                              }}
+                            >
+                              Send credentials
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                       <Button 
                         variant="outline" 
                         size="sm" 
                         onClick={handleSendEmployeeEmail}
-                        disabled={sendingEmployeeEmail}
+                        disabled={sendingEmployeeEmail || resendCredentialsLoading}
                       >
                         {sendingEmployeeEmail ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
                           <Send className="mr-2 h-4 w-4" />
                         )}
-                        Email
+                        Send notification
                       </Button>
                       <Button variant="outline" size="sm" onClick={openEditDialog}>
                         <Pencil className="mr-2 h-4 w-4" />
