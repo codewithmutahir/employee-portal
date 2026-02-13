@@ -12,9 +12,11 @@ const MODELS_BASE = "/models";
 interface FaceEnrollmentProps {
   employeeId: string;
   onEnrolled: () => void;
+  /** When true, show copy for re-registration (e.g. from profile settings). When 'settings', show neutral copy for both first-time and re-register. */
+  isReRegister?: boolean | 'settings';
 }
 
-export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) {
+export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnrollmentProps) {
   const [loading, setLoading] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -164,10 +166,18 @@ export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) 
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <UserPlus className="h-5 w-5" />
-          Register your face
+          {isReRegister === true
+            ? 'Re-register your face'
+            : isReRegister === 'settings'
+              ? 'Face recognition'
+              : 'Register your face'}
         </CardTitle>
         <CardDescription>
-          Register your face once to use facial recognition for clock in and clock out. Your face data is stored securely and used only to verify it&apos;s you (not a photo).
+          {isReRegister === true
+            ? 'Update your face registration for clock in and clock out. Use this if your first registration wasn’t perfect or your appearance has changed.'
+            : isReRegister === 'settings'
+              ? 'Register or update your face for clock in and clock out. Use this if you haven’t registered yet or if your first registration wasn’t perfect.'
+              : 'Register your face once to use facial recognition for clock in and clock out. Your face data is stored securely and used only to verify it\'s you (not a photo).'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -218,6 +228,10 @@ export function FaceEnrollment({ employeeId, onEnrolled }: FaceEnrollmentProps) 
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Saving...
                     </>
+                  ) : isReRegister === true ? (
+                    "Update my face"
+                  ) : isReRegister === 'settings' ? (
+                    "Register / Update my face"
                   ) : (
                     "Register my face"
                   )}

@@ -54,6 +54,7 @@ import {
   X,
   Star,
 } from 'lucide-react';
+import { FaceEnrollment } from './face-enrollment';
 
 interface ProfileSettingsProps {
   employee: Employee & { profilePhotoUrl?: string };
@@ -881,6 +882,13 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
           </Dialog>
         </CardContent>
       </Card>
+
+      {/* Face recognition – register or re-register for clock in/out */}
+      <FaceEnrollment
+        employeeId={employee.id}
+        onEnrolled={() => onProfileUpdate?.()}
+        isReRegister="settings"
+      />
 
       {/* Notification Preferences */}
       <Card>
