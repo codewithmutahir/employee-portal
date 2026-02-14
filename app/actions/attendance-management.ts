@@ -45,12 +45,20 @@ export async function updateAttendance(
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    if (updates.clockIn) {
-      updateData.clockIn = Timestamp.fromDate(new Date(updates.clockIn));
+    // Support clearing clock in/out: empty string or null removes the field
+    if (updates.clockIn !== undefined) {
+      if (updates.clockIn === '' || updates.clockIn === null) {
+        updateData.clockIn = FieldValue.delete();
+      } else {
+        updateData.clockIn = Timestamp.fromDate(new Date(updates.clockIn));
+      }
     }
-
-    if (updates.clockOut) {
-      updateData.clockOut = Timestamp.fromDate(new Date(updates.clockOut));
+    if (updates.clockOut !== undefined) {
+      if (updates.clockOut === '' || updates.clockOut === null) {
+        updateData.clockOut = FieldValue.delete();
+      } else {
+        updateData.clockOut = Timestamp.fromDate(new Date(updates.clockOut));
+      }
     }
 
     if (updates.breaks) {
@@ -73,25 +81,16 @@ export async function updateAttendance(
       updateData.managerNote = updates.managerNote || null;
     }
 
-    // Recalculate total hours if both clock in and out exist
-    if (updateData.clockIn && updateData.clockOut) {
-      const clockInTime = updates.clockIn!;
-      const clockOutTime = updates.clockOut!;
-      const breaks = updates.breaks || [];
-      updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
-    } else if (attendanceDoc.exists) {
-      const existing = attendanceDoc.data();
-      if (existing?.clockIn && updateData.clockOut && updates.clockOut) {
-        const clockInTime = existing.clockIn.toDate().toISOString();
-        const clockOutTime = updates.clockOut;
-        const breaks = updates.breaks || existing.breaks || [];
-        updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
-      } else if (updateData.clockIn && existing?.clockOut && updates.clockIn) {
-        const clockInTime = updates.clockIn;
-        const clockOutTime = existing.clockOut.toDate().toISOString();
-        const breaks = updates.breaks || existing.breaks || [];
-        updateData.totalHours = calculateHours(clockInTime, clockOutTime, breaks);
-      }
+    // Recalculate total hours only when both clock in and out are present (use existing when not updating)
+    const existing = attendanceDoc.exists ? attendanceDoc.data() : null;
+    const clockInStr = updates.clockIn && updates.clockIn !== '' ? updates.clockIn : (updates.clockIn === undefined && existing?.clockIn ? existing.clockIn.toDate().toISOString() : null);
+    const clockOutStr = updates.clockOut && updates.clockOut !== '' ? updates.clockOut : (updates.clockOut === undefined && existing?.clockOut ? existing.clockOut.toDate().toISOString() : null);
+
+    if (clockInStr && clockOutStr) {
+      const breaks = updates.breaks ?? existing?.breaks ?? [];
+      updateData.totalHours = calculateHours(clockInStr, clockOutStr, breaks);
+    } else {
+      updateData.totalHours = FieldValue.delete();
     }
 
     await attendanceRef.set(updateData, { merge: true });

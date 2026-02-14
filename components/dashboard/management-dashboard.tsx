@@ -452,8 +452,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         selectedEmployee.id,
         attForm.date,
         {
-          clockIn: attForm.clockIn || undefined,
-          clockOut: attForm.clockOut || undefined,
+          clockIn: attForm.clockIn.trim() === '' ? '' : attForm.clockIn || undefined,
+          clockOut: attForm.clockOut.trim() === '' ? '' : attForm.clockOut || undefined,
           breaks: breaks,
           payrollId: attForm.payrollId || undefined,
           noShowReason: attForm.noShowReason || undefined,
