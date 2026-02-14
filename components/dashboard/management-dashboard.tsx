@@ -1695,7 +1695,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   )}
                   
                   <div className="flex gap-2">
-                    <Button onClick={loadAttendance} variant="outline">Load</Button>
+                    <Button onClick={() => loadAttendance()} variant="outline">Load</Button>
                     <Button onClick={handleSaveAttendance}>Save Attendance</Button>
                   </div>
                 </CardContent>
