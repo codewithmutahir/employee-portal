@@ -330,27 +330,31 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     }
   }, [selectedEmployee, loadEmployeeDetails]);
 
-  async function loadAttendance() {
+  /** Load attendance for a given date. Pass date when calling from date picker so the selected date is used (state may not have updated yet). */
+  async function loadAttendance(dateToLoad?: string) {
     if (!selectedEmployee) return;
+    const date = dateToLoad ?? attForm.date;
     try {
-      const att = await getAttendanceByDate(selectedEmployee.id, attForm.date);
+      const att = await getAttendanceByDate(selectedEmployee.id, date);
       setAttendance(att);
       if (att) {
-        setAttForm({
+        setAttForm((prev) => ({
+          ...prev,
           date: att.date,
           clockIn: att.clockIn ? new Date(att.clockIn).toISOString().slice(0, 16) : '',
           clockOut: att.clockOut ? new Date(att.clockOut).toISOString().slice(0, 16) : '',
           payrollId: att.payrollId || '',
           noShowReason: att.noShowReason || '',
-        });
+        }));
       } else {
-        setAttForm({
-          date: attForm.date,
+        setAttForm((prev) => ({
+          ...prev,
+          date: date,
           clockIn: '',
           clockOut: '',
           payrollId: '',
           noShowReason: '',
-        });
+        }));
       }
     } catch (error) {
       toast({
@@ -1495,8 +1499,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       type="date"
                       value={attForm.date}
                       onChange={(e) => {
-                        setAttForm({ ...attForm, date: e.target.value });
-                        setTimeout(loadAttendance, 100);
+                        const newDate = e.target.value;
+                        setAttForm((prev) => ({ ...prev, date: newDate }));
+                        loadAttendance(newDate);
                       }}
                     />
                   </div>
@@ -1523,7 +1528,15 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   {attendance && attendance.totalHours !== undefined && (
                     <div>
                       <p className="text-sm text-muted-foreground">Total Hours</p>
-                      <p className="font-medium">{attendance.totalHours} hrs</p>
+                      <p className={`font-medium ${attendance.totalHours < 0 ? 'text-destructive' : ''}`}>
+                        {attendance.totalHours < 0 ? (
+                          <>
+                            {attendance.totalHours} hrs — check clock in/out (e.g. clock out may be next day)
+                          </>
+                        ) : (
+                          `${attendance.totalHours} hrs`
+                        )}
+                      </p>
                     </div>
                   )}
                   <div>

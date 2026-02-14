@@ -5,6 +5,16 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { AttendanceRecord, BreakRecord } from '@/types';
 import { calculateHours } from '@/lib/utils';
 
+/** Normalize to YYYY-MM-DD for consistent date handling. */
+function normalizeDateString(date: string): string {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return date;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export async function updateAttendance(
   employeeId: string,
   date: string,
@@ -20,12 +30,13 @@ export async function updateAttendance(
   editedBy: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${date}`);
+    const dateNorm = normalizeDateString(date);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateNorm}`);
     const attendanceDoc = await attendanceRef.get();
 
     const updateData: any = {
       employeeId,
-      date,
+      date: dateNorm,
       isEditedByManagement: true,
       editedBy,
       editedAt: FieldValue.serverTimestamp(),
@@ -95,7 +106,9 @@ export async function getAttendanceByDate(
   date: string
 ): Promise<AttendanceRecord | null> {
   try {
-    const doc = await adminDb.collection('attendance').doc(`${employeeId}_${date}`).get();
+    const dateNorm = normalizeDateString(date);
+    const docId = `${employeeId}_${dateNorm}`;
+    const doc = await adminDb.collection('attendance').doc(docId).get();
     if (!doc.exists) {
       return null;
     }
@@ -104,7 +117,7 @@ export async function getAttendanceByDate(
     return {
       id: doc.id,
       employeeId: data?.employeeId,
-      date: data?.date,
+      date: dateNorm,
       clockIn: data?.clockIn?.toDate().toISOString(),
       clockOut: data?.clockOut?.toDate().toISOString(),
       breaks: (data?.breaks || []).map((b: any) => ({
