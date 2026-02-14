@@ -5,9 +5,11 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { AttendanceRecord, BreakRecord } from '@/types';
 import { calculateHours } from '@/lib/utils';
 
-/** Normalize to YYYY-MM-DD for consistent date handling. */
+/** Normalize to YYYY-MM-DD. Pass-through if already YYYY-MM-DD to avoid timezone shifting (e.g. "2026-02-14" parsed as UTC midnight can become Feb 13 in local time). */
 function normalizeDateString(date: string): string {
-  const d = new Date(date);
+  const trimmed = date.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const d = new Date(trimmed);
   if (isNaN(d.getTime())) return date;
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
