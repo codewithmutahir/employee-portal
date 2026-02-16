@@ -97,6 +97,12 @@ export default function EmployeeDashboard({
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const { toast } = useToast();
 
+  /** Employee's local date (YYYY-MM-DD) so clock in/out work correctly in all timezones. */
+  function getLocalDateString(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
   useEffect(() => {
     loadData();
   }, [employee.id]);
@@ -105,7 +111,7 @@ export default function EmployeeDashboard({
     setLoading(true);
     try {
       const [today, history, notesData, stats, monthly, descriptor] = await Promise.all([
-        getTodayAttendance(employee.id),
+        getTodayAttendance(employee.id, getLocalDateString()),
         getAttendanceHistory(employee.id, 10),
         getNotes(employee.id, employee.id, employee.role === "management"), // Updated signature
         getEmployeeAttendanceStats(employee.id, 30),
@@ -133,35 +139,44 @@ export default function EmployeeDashboard({
   }
 
   async function handleClockIn() {
+    if (actionLoading) return;
     setActionLoading("clockIn");
-    const result = await clockIn(employee.id);
-    if (result.success) {
-      toast({ title: "Clocked in successfully" });
-      await loadData();
-    } else {
-      toast({
-        title: "Error",
-        description: result.error || "Failed to clock in",
-        variant: "destructive",
-      });
+    try {
+      const result = await clockIn(employee.id, getLocalDateString());
+      if (result.success) {
+        toast({ title: "Clocked in successfully" });
+        await loadData();
+      } else {
+        toast({
+          title: "Could not clock in",
+          description: result.error || "Failed to clock in",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   }
 
   async function handleClockOut() {
+    if (actionLoading) return;
+    const dateKey = todayAttendance?.date ?? getLocalDateString();
     setActionLoading("clockOut");
-    const result = await clockOut(employee.id);
-    if (result.success) {
-      toast({ title: "Clocked out successfully" });
-      await loadData();
-    } else {
-      toast({
-        title: "Error",
-        description: result.error || "Failed to clock out",
-        variant: "destructive",
-      });
+    try {
+      const result = await clockOut(employee.id, dateKey);
+      if (result.success) {
+        toast({ title: "Clocked out successfully" });
+        await loadData();
+      } else {
+        toast({
+          title: "Could not clock out",
+          description: result.error || "Failed to clock out",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   }
 
   function openFaceClockIn() {
@@ -183,35 +198,45 @@ export default function EmployeeDashboard({
   }
 
   async function handleStartBreak() {
+    if (actionLoading) return;
+    const dateKey = todayAttendance?.date ?? getLocalDateString();
     setActionLoading("startBreak");
-    const result = await startBreak(employee.id);
-    if (result.success) {
-      toast({ title: "Break started" });
-      await loadData();
-    } else {
-      toast({
-        title: "Error",
-        description: result.error || "Failed to start break",
-        variant: "destructive",
-      });
+    try {
+      const result = await startBreak(employee.id, dateKey);
+      if (result.success) {
+        toast({ title: "Break started" });
+        await loadData();
+      } else {
+        toast({
+          title: "Could not start break",
+          description: result.error || "Failed to start break",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   }
 
   async function handleEndBreak() {
+    if (actionLoading) return;
+    const dateKey = todayAttendance?.date ?? getLocalDateString();
     setActionLoading("endBreak");
-    const result = await endBreak(employee.id);
-    if (result.success) {
-      toast({ title: "Break ended" });
-      await loadData();
-    } else {
-      toast({
-        title: "Error",
-        description: result.error || "Failed to end break",
-        variant: "destructive",
-      });
+    try {
+      const result = await endBreak(employee.id, dateKey);
+      if (result.success) {
+        toast({ title: "Break ended" });
+        await loadData();
+      } else {
+        toast({
+          title: "Could not end break",
+          description: result.error || "Failed to end break",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   }
 
   const hasActiveBreak = todayAttendance?.breaks?.some((b) => !b.endTime);
@@ -613,15 +638,18 @@ export default function EmployeeDashboard({
                         Start Break
                       </Button>
                     ) : (
-                      <Button
-                        variant="outline"
-                        onClick={handleEndBreak}
-                        disabled={actionLoading !== null}
-                        className="w-full sm:w-auto"
-                      >
-                        <Coffee className="mr-2 h-4 w-4" />
-                        End Break
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={handleEndBreak}
+                          disabled={actionLoading !== null}
+                          className="w-full sm:w-auto"
+                        >
+                          <Coffee className="mr-2 h-4 w-4" />
+                          End Break
+                        </Button>
+                        <p className="text-xs text-muted-foreground w-full sm:w-auto">End your break to unlock Clock out.</p>
+                      </>
                     )}
                   </>
                 )}

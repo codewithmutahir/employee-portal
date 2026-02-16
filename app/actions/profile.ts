@@ -109,7 +109,7 @@ export async function changePassword(
           console.error('Failed to send password change email:', emailError);
         }
       }
-    }
+    } 
 
     return { success: true };
   } catch (error: any) {

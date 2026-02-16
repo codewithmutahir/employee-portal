@@ -5,10 +5,16 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { AttendanceRecord, BreakRecord } from '@/types';
 import { getTodayDateString, isToday, calculateHours } from '@/lib/utils';
 
-export async function clockIn(employeeId: string): Promise<{ success: boolean; error?: string }> {
+/** Use provided date (employee's local YYYY-MM-DD) or server's today. Fixes timezone issues (e.g. clock out next morning in Asia). */
+function getDateKey(dateOverride?: string): string {
+  if (dateOverride && /^\d{4}-\d{2}-\d{2}$/.test(dateOverride.trim())) return dateOverride.trim();
+  return getTodayDateString();
+}
+
+export async function clockIn(employeeId: string, dateOverride?: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const today = getTodayDateString();
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${today}`);
+    const dateKey = getDateKey(dateOverride);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
     const attendanceDoc = await attendanceRef.get();
 
     if (attendanceDoc.exists) {
@@ -21,7 +27,7 @@ export async function clockIn(employeeId: string): Promise<{ success: boolean; e
     const now = FieldValue.serverTimestamp();
     await attendanceRef.set({
       employeeId,
-      date: today,
+      date: dateKey,
       clockIn: now,
       breaks: [],
       isEditedByManagement: false,
@@ -36,10 +42,10 @@ export async function clockIn(employeeId: string): Promise<{ success: boolean; e
   }
 }
 
-export async function clockOut(employeeId: string): Promise<{ success: boolean; error?: string }> {
+export async function clockOut(employeeId: string, dateOverride?: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const today = getTodayDateString();
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${today}`);
+    const dateKey = getDateKey(dateOverride);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
     const attendanceDoc = await attendanceRef.get();
 
     if (!attendanceDoc.exists) {
@@ -81,10 +87,10 @@ export async function clockOut(employeeId: string): Promise<{ success: boolean; 
   }
 }
 
-export async function startBreak(employeeId: string): Promise<{ success: boolean; error?: string }> {
+export async function startBreak(employeeId: string, dateOverride?: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const today = getTodayDateString();
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${today}`);
+    const dateKey = getDateKey(dateOverride);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
     const attendanceDoc = await attendanceRef.get();
 
     if (!attendanceDoc.exists || !attendanceDoc.data()?.clockIn) {
@@ -120,10 +126,10 @@ export async function startBreak(employeeId: string): Promise<{ success: boolean
   }
 }
 
-export async function endBreak(employeeId: string): Promise<{ success: boolean; error?: string }> {
+export async function endBreak(employeeId: string, dateOverride?: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const today = getTodayDateString();
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${today}`);
+    const dateKey = getDateKey(dateOverride);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
     const attendanceDoc = await attendanceRef.get();
 
     if (!attendanceDoc.exists) {
@@ -180,10 +186,10 @@ export async function endBreak(employeeId: string): Promise<{ success: boolean; 
   }
 }
 
-export async function getTodayAttendance(employeeId: string): Promise<AttendanceRecord | null> {
+export async function getTodayAttendance(employeeId: string, dateOverride?: string): Promise<AttendanceRecord | null> {
   try {
-    const today = getTodayDateString();
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${today}`);
+    const dateKey = getDateKey(dateOverride);
+    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
     const attendanceDoc = await attendanceRef.get();
 
     if (!attendanceDoc.exists) {
@@ -194,7 +200,7 @@ export async function getTodayAttendance(employeeId: string): Promise<Attendance
     return {
       id: attendanceDoc.id,
       employeeId: data?.employeeId,
-      date: data?.date,
+      date: data?.date ?? dateKey,
       clockIn: data?.clockIn?.toDate().toISOString(),
       clockOut: data?.clockOut?.toDate().toISOString(),
       breaks: (data?.breaks || []).map((b: any) => ({
