@@ -8,6 +8,7 @@ import { Loader2, Camera, UserPlus } from "lucide-react";
 import { saveEmployeeFaceDescriptor } from "@/app/actions/face";
 
 const MODELS_BASE = "/models";
+const VIDEO_READY_WAIT_MS = 400;
 
 interface FaceEnrollmentProps {
   employeeId: string;
@@ -21,6 +22,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
   const [modelsReady, setModelsReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -67,19 +69,19 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
 
   async function startCamera() {
     setError(null);
-    
+    setVideoReady(false);
     setCameraActive(true);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 150));
     
     try {
       let retries = 0;
-      while (!videoRef.current && retries < 5) {
+      while (!videoRef.current && retries < 8) {
         await new Promise(resolve => setTimeout(resolve, 100));
         retries++;
       }
       
       if (!videoRef.current) {
-        setError("Video element not ready. Please refresh the page and try again.");
+        setError("Video not ready. Please refresh the page and try again.");
         setCameraActive(false);
         return;
       }
@@ -88,35 +90,31 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
         video: { width: 640, height: 480, facingMode: "user" },
       });
       streamRef.current = stream;
-      videoRef.current.srcObject = stream;
+      const video = videoRef.current;
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
       
-      // Ensure video element properties are set
-      videoRef.current.muted = true;
-      videoRef.current.playsInline = true;
-      
-      // Wait for video to be ready
       await new Promise<void>((resolve, reject) => {
-        const video = videoRef.current;
-        if (!video) {
-          reject(new Error("Video element lost"));
-          return;
-        }
-        
-        const timeout = setTimeout(() => {
-          reject(new Error("Video load timeout"));
-        }, 5000);
-        
+        const t = setTimeout(() => reject(new Error("Camera took too long to start")), 8000);
         video.onloadedmetadata = () => {
-          clearTimeout(timeout);
+          clearTimeout(t);
           resolve();
         };
       });
       
-      await videoRef.current.play();
+      await video.play();
+      await new Promise(r => setTimeout(r, VIDEO_READY_WAIT_MS));
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        setVideoReady(true);
+      } else {
+        setVideoReady(true);
+      }
     } catch (err: any) {
       console.error("Camera error:", err);
-      setError(err?.message || "Could not access camera. Please allow camera access.");
+      setError(err?.message || "Could not access camera. Please allow camera access and try again.");
       setCameraActive(false);
+      setVideoReady(false);
       stopCamera();
     }
   }
@@ -125,6 +123,10 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
     const video = videoRef.current;
     const faceapi = faceApiRef.current;
     if (!video || !faceapi || !modelsReady) return;
+    if (video.readyState < 2 || video.videoWidth === 0) {
+      setError("Camera still loading. Wait a moment and try again.");
+      return;
+    }
 
     setCapturing(true);
     setError(null);
@@ -133,13 +135,13 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
       const det = await faceapi
         .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
           inputSize: 320,
-          scoreThreshold: 0.3  // Lower threshold for better detection
+          scoreThreshold: 0.25
         }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
       if (!det) {
-        setError("No face detected. Make sure your face is well-lit, centered in the frame, and try again.");
+        setError("No face in frame. Face the camera directly, ensure good lighting, and try again.");
         setCapturing(false);
         return;
       }
@@ -148,15 +150,16 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
       const result = await saveEmployeeFaceDescriptor(employeeId, descriptor);
 
       if (result.success) {
-        toast({ title: "Face registered successfully" });
+        toast({ title: "Face registered successfully", description: "You can now use face verification for clock in and out." });
         stopCamera();
+        setVideoReady(false);
         onEnrolled();
       } else {
-        setError(result.error || "Failed to save face data.");
+        setError(result.error || "Failed to save. Please try again.");
       }
     } catch (err: any) {
       console.error("Face capture error:", err);
-      setError(err?.message || "Face capture failed. Try refreshing the page.");
+      setError(err?.message || "Capture failed. Check lighting and try again.");
     }
     setCapturing(false);
   }
@@ -201,6 +204,11 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
           )}
           {modelsReady && cameraActive && (
             <>
+              {!videoReady && (
+                <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
+                  <span className="text-sm text-muted-foreground">Starting camera...</span>
+                </div>
+              )}
               <video
                 ref={videoRef}
                 autoPlay
@@ -221,7 +229,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
                 <Button
                   size="sm"
                   onClick={captureAndSave}
-                  disabled={capturing}
+                  disabled={capturing || !videoReady}
                 >
                   {capturing ? (
                     <>

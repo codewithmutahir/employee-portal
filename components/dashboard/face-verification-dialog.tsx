@@ -20,11 +20,13 @@ const MODELS_BASE = "/models";
 // Different person typically has distance > 0.5
 const FACE_MATCH_THRESHOLD = 0.45;
 // How long to hold face steady for verification (in ms)
-const HOLD_DURATION_MS = 2500;
-// Minimum confidence score for face detection - lowered for better detection
+const HOLD_DURATION_MS = 2000;
+// Minimum confidence score for face detection
 const MIN_DETECTION_SCORE = 0.3;
 // Input size for face detector (higher = more accurate but slower)
 const DETECTOR_INPUT_SIZE = 320;
+// Run detection every N frames to keep UI smooth and reduce CPU
+const DETECTION_THROTTLE = 2;
 
 type Step = "loading" | "camera" | "detecting" | "verifying" | "success" | "error";
 
@@ -60,7 +62,11 @@ export function FaceVerificationDialog({
   const verifiedRef = useRef(false);
   const detectionLoopStartedRef = useRef(false);
   const noFaceCountRef = useRef(0);
-  
+  const onVerifiedRef = useRef(onVerified);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onVerifiedRef.current = onVerified;
+  onOpenChangeRef.current = onOpenChange;
+
   const { toast } = useToast();
 
   const stopCamera = useCallback(() => {
@@ -173,7 +179,7 @@ export function FaceVerificationDialog({
     };
   }, [open, storedDescriptor, stopCamera]);
 
-  // Main detection loop
+  // Main detection loop (use refs for callbacks so effect doesn't restart on parent re-render)
   useEffect(() => {
     if (step !== "detecting" || !cameraReady) return;
     
@@ -182,27 +188,32 @@ export function FaceVerificationDialog({
     
     if (!video || !faceapi || !storedDescriptor) return;
 
-    let rafId: number;
+    let rafId: number = 0;
     let frameCount = 0;
 
     async function detect() {
       if (verifiedRef.current) return;
       
-      const video = videoRef.current;
-      const faceapi = faceApiRef.current;
-      if (!video || !faceapi || !storedDescriptor) return;
+      const v = videoRef.current;
+      const api = faceApiRef.current;
+      if (!v || !api || !storedDescriptor) return;
 
       // Wait for video to be ready
-      if (video.readyState < 2 || video.videoWidth === 0) {
+      if (v.readyState < 2 || v.videoWidth === 0) {
         rafId = requestAnimationFrame(detect);
         return;
       }
 
       try {
         frameCount++;
+        // Throttle: run detection every N frames for smoother UI
+        if (frameCount % DETECTION_THROTTLE !== 0) {
+          rafId = requestAnimationFrame(detect);
+          return;
+        }
         
-        const det = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
+        const det = await api
+          .detectSingleFace(v, new api.TinyFaceDetectorOptions({ 
             inputSize: DETECTOR_INPUT_SIZE,
             scoreThreshold: MIN_DETECTION_SCORE 
           }))
@@ -240,7 +251,7 @@ export function FaceVerificationDialog({
         // Check detection confidence
         const detectionScore = det.detection.score;
         if (detectionScore < MIN_DETECTION_SCORE) {
-          if (frameCount % 30 === 0) {
+          if (frameCount % 45 === 0) {
             setStatusText("Move closer or improve lighting...");
           }
           rafId = requestAnimationFrame(detect);
@@ -276,16 +287,15 @@ export function FaceVerificationDialog({
           
           // Verify face match with STRICT threshold
           const descriptor = Array.from(det.descriptor);
-          const distance = faceapi.euclideanDistance(descriptor, storedDescriptor);
+          const distance = api.euclideanDistance(descriptor, storedDescriptor);
           
           if (distance < FACE_MATCH_THRESHOLD) {
             setStep("success");
             setStatusText("Verified successfully!");
             
-            // Brief delay before closing
             setTimeout(() => {
-              onVerified();
-              onOpenChange(false);
+              onVerifiedRef.current();
+              onOpenChangeRef.current(false);
             }, 800);
           } else {
             setStep("error");
@@ -317,9 +327,9 @@ export function FaceVerificationDialog({
     }, 100);
 
     return () => {
-      cancelAnimationFrame(rafId);
+      if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [step, storedDescriptor, onVerified, onOpenChange, cameraReady]);
+  }, [step, storedDescriptor, cameraReady]);
 
   const handleClose = () => {
     stopCamera();
@@ -357,7 +367,8 @@ export function FaceVerificationDialog({
             </div>
           )}
           
-          {(step === "camera" || step === "detecting" || step === "verifying") && (
+          {/* Keep video mounted for camera + detecting + verifying + error so Retry doesn't lose stream */}
+          {(step === "camera" || step === "detecting" || step === "verifying" || step === "error") && (
             <>
               <video
                 ref={videoRef}
@@ -365,10 +376,9 @@ export function FaceVerificationDialog({
                 playsInline
                 muted
                 className="w-full h-full object-cover"
-                style={{ transform: 'scaleX(-1)' }}
+                style={{ transform: 'scaleX(-1)', visibility: step === "error" ? "hidden" : "visible" }}
               />
               
-              {/* Face detection overlay */}
               {step === "detecting" && (
                 <div className={`absolute inset-4 border-4 rounded-lg transition-colors duration-300 ${
                   faceDetected 
@@ -377,7 +387,6 @@ export function FaceVerificationDialog({
                 }`} />
               )}
               
-              {/* Verifying overlay */}
               {step === "verifying" && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                   <Loader2 className="h-10 w-10 animate-spin text-white" />
@@ -394,9 +403,10 @@ export function FaceVerificationDialog({
           )}
           
           {step === "error" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center bg-background/95">
               <XCircle className="h-12 w-12 text-destructive" />
-              <span className="text-sm text-destructive">{error}</span>
+              <span className="text-sm text-destructive font-medium">{error}</span>
+              <p className="text-xs text-muted-foreground">Click Try Again to verify again, or re-register your face in Settings if it often fails.</p>
             </div>
           )}
         </div>

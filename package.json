@@ -24,6 +24,7 @@
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "cursor-cli": "^1.0.0",
     "date-fns": "^3.3.1",
     "face-api.js": "^0.22.2",
     "firebase": "^10.12.0",
