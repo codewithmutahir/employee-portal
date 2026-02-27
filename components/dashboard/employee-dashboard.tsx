@@ -97,7 +97,7 @@ export default function EmployeeDashboard({
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const { toast } = useToast();
 
-  /** Employee's local date (YYYY-MM-DD) so clock in/out work correctly in all timezones. */
+  /** Employee's local date (YYYY-MM-DD) — uses browser local time so clock in/out work in all timezones. */
   function getLocalDateString(): string {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -160,6 +160,7 @@ export default function EmployeeDashboard({
 
   async function handleClockOut() {
     if (actionLoading) return;
+    // Use record's date so overnight shifts clock out on the correct day (e.g. yesterday's open shift).
     const dateKey = todayAttendance?.date ?? getLocalDateString();
     setActionLoading("clockOut");
     try {
@@ -522,15 +523,24 @@ export default function EmployeeDashboard({
         </CardContent>
       </Card>
 
-      {/* Today's Attendance */}
+      {/* Today's Attendance (or open overnight shift from yesterday) */}
       <Card>
         <CardHeader>
           <CardTitle>Today&apos;s Attendance</CardTitle>
-          <CardDescription>{formatDate(new Date())}</CardDescription>
+          <CardDescription>
+            {todayAttendance?.date && todayAttendance.date !== getLocalDateString() && todayAttendance.clockIn && !todayAttendance.clockOut
+              ? `Overnight shift (started ${formatDate(todayAttendance.date)}) — clock out when finished`
+              : formatDate(new Date())}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {todayAttendance ? (
             <>
+              {todayAttendance.date && todayAttendance.date !== getLocalDateString() && todayAttendance.clockIn && !todayAttendance.clockOut && (
+                <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                  You have an open shift from yesterday. Clock out below when your shift ends.
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {todayAttendance.clockIn && (
                   <div>

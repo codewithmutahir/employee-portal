@@ -11,6 +11,38 @@ function getDateKey(dateOverride?: string): string {
   return getTodayDateString();
 }
 
+/** Get yesterday's date string (YYYY-MM-DD) from a given date string. Supports overnight shifts. */
+function getYesterdayDateString(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function docToAttendanceRecord(doc: { id: string; exists: boolean; data: () => Record<string, any> | undefined }, dateKey: string): AttendanceRecord {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    employeeId: data?.employeeId,
+    date: data?.date ?? dateKey,
+    clockIn: data?.clockIn?.toDate().toISOString(),
+    clockOut: data?.clockOut?.toDate().toISOString(),
+    breaks: (data?.breaks || []).map((b: any) => ({
+      startTime: b.startTime,
+      endTime: b.endTime,
+      duration: b.duration,
+    })),
+    totalHours: data?.totalHours,
+    editedBy: data?.editedBy,
+    editedAt: data?.editedAt?.toDate().toISOString(),
+    isEditedByManagement: data?.isEditedByManagement || false,
+    createdAt: data?.createdAt?.toDate().toISOString(),
+    updatedAt: data?.updatedAt?.toDate().toISOString(),
+  } as AttendanceRecord;
+}
+
 export async function clockIn(employeeId: string, dateOverride?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const dateKey = getDateKey(dateOverride);
@@ -186,35 +218,33 @@ export async function endBreak(employeeId: string, dateOverride?: string): Promi
   }
 }
 
+/**
+ * Returns the attendance record the employee should see: either today's record,
+ * or yesterday's record if they have an open overnight shift (clocked in yesterday, not yet out).
+ * This supports night shifts (e.g. 9 PM–6 AM) and flexible schedules.
+ */
 export async function getTodayAttendance(employeeId: string, dateOverride?: string): Promise<AttendanceRecord | null> {
   try {
     const dateKey = getDateKey(dateOverride);
-    const attendanceRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
-    const attendanceDoc = await attendanceRef.get();
+    const todayRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
+    const todayDoc = await todayRef.get();
 
-    if (!attendanceDoc.exists) {
-      return null;
+    if (todayDoc.exists) {
+      return docToAttendanceRecord(todayDoc, dateKey);
     }
 
-    const data = attendanceDoc.data();
-    return {
-      id: attendanceDoc.id,
-      employeeId: data?.employeeId,
-      date: data?.date ?? dateKey,
-      clockIn: data?.clockIn?.toDate().toISOString(),
-      clockOut: data?.clockOut?.toDate().toISOString(),
-      breaks: (data?.breaks || []).map((b: any) => ({
-        startTime: b.startTime,
-        endTime: b.endTime,
-        duration: b.duration,
-      })),
-      totalHours: data?.totalHours,
-      editedBy: data?.editedBy,
-      editedAt: data?.editedAt?.toDate().toISOString(),
-      isEditedByManagement: data?.isEditedByManagement || false,
-      createdAt: data?.createdAt?.toDate().toISOString(),
-      updatedAt: data?.updatedAt?.toDate().toISOString(),
-    } as AttendanceRecord;
+    const yesterdayKey = getYesterdayDateString(dateKey);
+    const yesterdayRef = adminDb.collection('attendance').doc(`${employeeId}_${yesterdayKey}`);
+    const yesterdayDoc = await yesterdayRef.get();
+
+    if (yesterdayDoc.exists) {
+      const yesterdayData = yesterdayDoc.data();
+      if (yesterdayData?.clockIn && !yesterdayData?.clockOut) {
+        return docToAttendanceRecord(yesterdayDoc, yesterdayKey);
+      }
+    }
+
+    return null;
   } catch (error: any) {
     console.error('Get attendance error:', error);
     return null;
