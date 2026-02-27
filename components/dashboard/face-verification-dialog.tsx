@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { machine } from "os";
 
 const MODELS_BASE = "/models";
 // STRICT face matching - lower = more strict (0.4-0.5 is recommended)
@@ -191,7 +192,7 @@ export function FaceVerificationDialog({
     let rafId: number = 0;
     let frameCount = 0;
 
-    async function detect() {
+    async function detect() {machine
       if (verifiedRef.current) return;
       
       const v = videoRef.current;
