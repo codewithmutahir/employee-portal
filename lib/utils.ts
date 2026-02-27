@@ -6,17 +6,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Parse as local calendar date (avoids UTC-midnight shift for YYYY-MM-DD). */
+function parseDateForDisplay(value: string | Date): Date | null {
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const s = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T12:00:00');
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return 'N/A';
   
   try {
-    let d: Date;
+    let d: Date | null = null;
     
     if (typeof date === 'string') {
-      // Handle ISO string or other date formats
-      d = new Date(date);
+      d = parseDateForDisplay(date);
     } else if (date instanceof Date) {
-      d = date;
+      d = isNaN(date.getTime()) ? null : date;
     } else if (typeof date === 'object') {
       // Handle Firestore Timestamp-like objects
       const anyDate = date as any;
@@ -33,7 +42,7 @@ export function formatDate(date: string | Date | null | undefined): string {
       return 'N/A';
     }
     
-    if (isNaN(d.getTime())) return 'N/A';
+    if (!d || isNaN(d.getTime())) return 'N/A';
     
     return d.toLocaleDateString('en-US', { 
       year: 'numeric', 
@@ -45,14 +54,30 @@ export function formatDate(date: string | Date | null | undefined): string {
   }
 }
 
-export function formatTime(date: string | Date): string {
-  if (!date) return 'N/A';
+/** Format time in the user's local timezone (clock in/out and breaks). Handles ISO strings and Firestore-like timestamps. */
+export function formatTime(date: string | Date | Record<string, unknown> | null | undefined): string {
+  if (date == null) return 'N/A';
   try {
-    const d = typeof date === 'string' ? new Date(date) : date;
+    let d: Date;
+    if (date instanceof Date) {
+      d = date;
+    } else if (typeof date === 'string') {
+      d = new Date(date);
+    } else if (typeof date === 'object' && date !== null) {
+      const t = date as { _seconds?: number; seconds?: number; toDate?: () => Date };
+      if (typeof t._seconds === 'number') d = new Date(t._seconds * 1000);
+      else if (typeof t.seconds === 'number') d = new Date(t.seconds * 1000);
+      else if (typeof t.toDate === 'function') d = t.toDate();
+      else return 'N/A';
+    } else {
+      return 'N/A';
+    }
     if (isNaN(d.getTime())) return 'Invalid Time';
+    const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
     return d.toLocaleTimeString('en-US', { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      ...(tz ? { timeZone: tz } : {}),
     });
   } catch {
     return 'Invalid Time';

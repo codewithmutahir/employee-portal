@@ -50,28 +50,22 @@ export default function AttendanceHistory({
     );
   };
 
+  // Record.date is YYYY-MM-DD (calendar day). Parse as local date so "Today"/"Yesterday"/weekday are correct in all timezones.
   const formatAttendanceDate = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    
+    if (!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) return dateString || 'N/A';
     try {
-      const date = new Date(dateString);
+      const date = new Date(dateString.trim() + 'T12:00:00');
       if (isNaN(date.getTime())) return dateString;
-      
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(today.getDate() - 1);
-
-      if (date.toDateString() === today.toDateString()) {
-        return "Today";
-      } else if (date.toDateString() === yesterday.toDateString()) {
-        return "Yesterday";
-      } else {
-        return date.toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-        });
-      }
+      if (date.toDateString() === today.toDateString()) return "Today";
+      if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+      return date.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
     } catch {
       return dateString || 'N/A';
     }
