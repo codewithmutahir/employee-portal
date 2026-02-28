@@ -116,6 +116,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
   // Load announcements
   useEffect(() => {
     loadAnnouncements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when employee/role changes
   }, [employee.id, isManagement]);
 
   async function loadAnnouncements() {

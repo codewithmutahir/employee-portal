@@ -13,6 +13,7 @@ export default function Home() {
 
   useEffect(() => {
     checkAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   async function checkAuth() {

@@ -266,7 +266,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     } finally {
       setLoading(false);
     }
-  }, [selectedEmployee, toast]);
+  }, [selectedEmployee, toast, employee.id]);
 
   useEffect(() => {
     loadEmployees();
@@ -274,6 +274,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     loadAnniversaries();
     loadManagementReports();
     loadIssues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   async function loadIssues() {

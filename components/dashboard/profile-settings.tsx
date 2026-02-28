@@ -148,6 +148,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
   useEffect(() => {
     loadEmergencyContacts();
     loadNotificationPreferences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when employee changes
   }, [employee.id]);
 
   async function loadEmergencyContacts() {
@@ -648,10 +649,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
                   </Button>
                   <Button onClick={handleAddContact} disabled={contactSaving}>
                     {contactSaving ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Adding...
-                      </>
+                      <LoadingSpinner label="Adding" />
                     ) : (
                       'Add Contact'
                     )}

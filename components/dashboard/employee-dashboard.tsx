@@ -105,6 +105,7 @@ export default function EmployeeDashboard({
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load when employee changes
   }, [employee.id]);
 
   async function loadData() {
