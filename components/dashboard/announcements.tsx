@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -473,10 +474,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
                   </Button>
                   <Button onClick={handleCreateAnnouncement} disabled={creating}>
                     {creating ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Posting...
-                      </>
+                      <LoadingSpinner label="Posting" />
                     ) : (
                       'Post Announcement'
                     )}
@@ -725,10 +723,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
             </Button>
             <Button onClick={handleUpdateAnnouncement} disabled={editing}>
               {editing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
+                <LoadingSpinner label="Saving" />
               ) : (
                 'Save Changes'
               )}

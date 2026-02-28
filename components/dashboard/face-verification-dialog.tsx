@@ -10,8 +10,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { machine } from "os";
 
@@ -192,7 +193,7 @@ export function FaceVerificationDialog({
     let rafId: number = 0;
     let frameCount = 0;
 
-    async function detect() {machine
+    async function detect() {
       if (verifiedRef.current) return;
       
       const v = videoRef.current;
@@ -362,9 +363,8 @@ export function FaceVerificationDialog({
         {/* Video container */}
         <div className="relative flex justify-center rounded-lg overflow-hidden bg-muted aspect-video">
           {step === "loading" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-              <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{statusText}</span>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <LoadingSpinner block size="lg" label={statusText} />
             </div>
           )}
           
@@ -390,7 +390,7 @@ export function FaceVerificationDialog({
               
               {step === "verifying" && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <Loader2 className="h-10 w-10 animate-spin text-white" />
+                  <LoadingSpinner size="lg" className="text-white" label="Verifying" />
                 </div>
               )}
             </>

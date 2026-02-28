@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { exportEmployeeData, exportAllEmployeesData } from '@/app/actions/export';
 import { formatEmployeeDataForPrint, formatEmployeeDataAsCSV, formatAllEmployeesDataAsCSV, formatEmployeeDataAsTimecardCSV, formatAllEmployeesDataAsTimecardCSV } from '@/lib/export-utils';
 import { useToast } from '@/components/ui/use-toast';
@@ -202,8 +203,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
           onClick={() => handleExportSingle('txt')}
           disabled={loading}
         >
-          <FileText className="mr-2 h-4 w-4" />
-          {loading ? 'Exporting...' : 'Export TXT'}
+          {loading ? <LoadingSpinner label="Exporting" /> : (<><FileText className="mr-2 h-4 w-4" />Export TXT</>)}
         </Button>
         <Button
           variant="outline"
@@ -211,8 +211,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
           onClick={() => handleExportSingle('csv')}
           disabled={loading}
         >
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          {loading ? 'Exporting...' : 'Export CSV'}
+          {loading ? <LoadingSpinner label="Exporting" /> : (<><FileSpreadsheet className="mr-2 h-4 w-4" />Export CSV</>)}
         </Button>
         <Button
           variant="outline"
@@ -220,8 +219,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
           onClick={handlePrintSingle}
           disabled={loading}
         >
-          <Printer className="mr-2 h-4 w-4" />
-          {loading ? 'Loading...' : 'Print'}
+          {loading ? <LoadingSpinner label="Preparing" /> : (<><Printer className="mr-2 h-4 w-4" />Print</>)}
         </Button>
       </div>
     );
@@ -235,8 +233,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
         onClick={() => handleExportAll('txt')}
         disabled={loading}
       >
-        <FileText className="mr-2 h-4 w-4" />
-        {loading ? 'Exporting...' : 'Export All TXT'}
+        {loading ? <LoadingSpinner label="Exporting" /> : (<><FileText className="mr-2 h-4 w-4" />Export All TXT</>)}
       </Button>
       <Button
         variant="outline"
@@ -244,8 +241,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
         onClick={() => handleExportAll('csv')}
         disabled={loading}
       >
-        <FileSpreadsheet className="mr-2 h-4 w-4" />
-        {loading ? 'Exporting...' : 'Export All CSV'}
+        {loading ? <LoadingSpinner label="Exporting" /> : (<><FileSpreadsheet className="mr-2 h-4 w-4" />Export All CSV</>)}
       </Button>
     </div>
   );

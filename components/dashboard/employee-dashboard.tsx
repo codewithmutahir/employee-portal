@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,7 +47,6 @@ import {
   Settings,
   LayoutDashboard,
   AlertCircle,
-  Loader2,
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
@@ -738,10 +738,7 @@ export default function EmployeeDashboard({
           </div>
           <Button onClick={handleReportIssue} disabled={issueSubmitting}>
             {issueSubmitting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Submitting...
-              </>
+              <LoadingSpinner label="Submitting" />
             ) : (
               <>
                 <AlertCircle className="mr-2 h-4 w-4" />

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 import { User } from 'firebase/auth';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Home() {
@@ -27,10 +28,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center space-y-4">
-          <Skeleton className="h-12 w-48 mx-auto" />
-          <Skeleton className="h-4 w-32 mx-auto" />
-        </div>
+        <LoadingSpinner block label="Loading" />
       </div>
     );
   }

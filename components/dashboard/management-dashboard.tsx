@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Employee, AttendanceRecord, Compensation, Note, Issue, IssueStatus } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +19,7 @@ import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '@/lib/utils';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, Loader2, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
@@ -1181,7 +1182,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
               </CardContent>
             ) : (
               <CardContent>
-                <p className="text-sm text-muted-foreground">Loading tenure statistics...</p>
+                <LoadingSpinner block label="Loading tenure statistics" />
               </CardContent>
             )}
           </Card>
@@ -1212,7 +1213,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                             disabled={resendCredentialsLoading || sendingEmployeeEmail}
                           >
                             {resendCredentialsLoading ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <LoadingSpinner label="Sending" size="sm" />
                             ) : (
                               <KeyRound className="mr-2 h-4 w-4" />
                             )}
@@ -1246,7 +1247,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         disabled={sendingEmployeeEmail || resendCredentialsLoading}
                       >
                         {sendingEmployeeEmail ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <LoadingSpinner label="Sending" size="sm" />
                         ) : (
                           <Send className="mr-2 h-4 w-4" />
                         )}
@@ -1289,10 +1290,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                               disabled={deleteLoading}
                             >
                               {deleteLoading ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Deleting...
-                                </>
+                                <LoadingSpinner label="Deleting" />
                               ) : (
                                 <>
                                   <Trash2 className="mr-2 h-4 w-4" />
@@ -1807,7 +1805,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             Reported issues
           </h2>
           <Button variant="outline" size="sm" onClick={loadIssues} disabled={issuesLoading}>
-            {issuesLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Refresh'}
+            {issuesLoading ? <LoadingSpinner size="sm" /> : 'Refresh'}
           </Button>
         </div>
         <Card>
@@ -1817,7 +1815,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           </CardHeader>
           <CardContent>
             {issuesLoading ? (
-              <p className="text-sm text-muted-foreground">Loading issues...</p>
+              <LoadingSpinner block label="Loading issues" />
             ) : issues.length === 0 ? (
               <p className="text-sm text-muted-foreground">No issues reported yet.</p>
             ) : (
@@ -1843,7 +1841,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           {issue.status.replace('_', ' ')}
                         </span>
                         {issueStatusUpdating === issue.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <LoadingSpinner size="sm" />
                         ) : (
                           <Select
                             value={issue.status}
@@ -1890,10 +1888,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             disabled={reportsLoading}
           >
             {reportsLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Refreshing...
-              </>
+              <LoadingSpinner label="Refreshing" />
             ) : (
               <>
                 <BarChart3 className="mr-2 h-4 w-4" />
@@ -2320,10 +2315,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             <AlertDialogCancel disabled={addEmployeeLoading}>Cancel</AlertDialogCancel>
             <Button onClick={handleAddEmployee} disabled={addEmployeeLoading}>
               {addEmployeeLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
+                <LoadingSpinner label="Creating" />
               ) : (
                 <>
                   <Plus className="mr-2 h-4 w-4" />
@@ -2441,10 +2433,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             <AlertDialogCancel disabled={editEmployeeLoading}>Cancel</AlertDialogCancel>
             <Button onClick={handleEditEmployee} disabled={editEmployeeLoading}>
               {editEmployeeLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
+                <LoadingSpinner label="Saving" />
               ) : (
                 <>
                   <Pencil className="mr-2 h-4 w-4" />

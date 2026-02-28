@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -108,7 +109,7 @@ export default function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? <LoadingSpinner label="Signing in" size="sm" /> : 'Sign in'}
             </Button>
           </form>
         </CardContent>

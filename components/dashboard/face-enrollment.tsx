@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, Camera, UserPlus } from "lucide-react";
+import { Camera, UserPlus } from "lucide-react";
 import { saveEmployeeFaceDescriptor } from "@/app/actions/face";
 
 const MODELS_BASE = "/models";
@@ -190,7 +191,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
         <div className="relative flex justify-center rounded-lg overflow-hidden bg-muted aspect-video max-h-64">
           {!modelsReady && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
+              <LoadingSpinner size="lg" label="Loading models" />
             </div>
           )}
           {modelsReady && !cameraActive && (
@@ -232,10 +233,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
                   disabled={capturing || !videoReady}
                 >
                   {capturing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
+                    <LoadingSpinner label="Saving" />
                   ) : isReRegister === true ? (
                     "Update my face"
                   ) : isReRegister === 'settings' ? (

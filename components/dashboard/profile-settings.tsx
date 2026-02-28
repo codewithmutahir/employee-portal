@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,7 +50,6 @@ import {
   Edit,
   Bell,
   Shield,
-  Loader2,
   Save,
   X,
   Star,
@@ -475,10 +475,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
           <div className="pt-4">
             <Button onClick={handleUpdateProfile} disabled={profileLoading}>
               {profileLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
+                <LoadingSpinner label="Saving" />
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
@@ -550,10 +547,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
           <div className="pt-4">
             <Button onClick={handleUpdateProfile} disabled={profileLoading}>
               {profileLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
+                <LoadingSpinner label="Saving" />
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
@@ -669,9 +663,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
         </CardHeader>
         <CardContent>
           {contactsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
+            <LoadingSpinner block label="Loading contacts" />
           ) : emergencyContacts.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               No emergency contacts added yet
@@ -802,10 +794,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
             </Button>
             <Button onClick={handleUpdateContact} disabled={contactSaving}>
               {contactSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
+                <LoadingSpinner label="Saving" />
               ) : (
                 'Save Changes'
               )}
@@ -869,10 +858,7 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
                 </Button>
                 <Button onClick={handleChangePassword} disabled={passwordLoading}>
                   {passwordLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Changing...
-                    </>
+                    <LoadingSpinner label="Changing" />
                   ) : (
                     'Change Password'
                   )}
