@@ -201,3 +201,25 @@ export interface Issue {
   managementNote?: string;  // Optional note from management
 }
 
+// ==================== WORK ANNIVERSARY / TENURE ====================
+
+export interface TenureInfo {
+  years: number;
+  months: number;
+  days: number;
+  totalDays: number;
+  label: string;
+  shortLabel: string;
+}
+
+export interface WorkAnniversary {
+  employee: Employee;
+  hireDate: Date;
+  anniversaryDate: Date;
+  yearsCompleting: number;
+  daysUntil: number;
+  isMilestone: boolean;
+  milestoneType: 'standard' | 'silver' | 'gold' | 'platinum' | 'diamond';
+  tenureLabel: string;
+}
+
