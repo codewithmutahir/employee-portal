@@ -100,6 +100,13 @@ export async function clockOut(
       return { success: false, error: 'Already clocked out today' };
     }
 
+    const clockInTs = (data.clockIn as { toDate: () => Date }).toDate().getTime();
+    const nowTs = Date.now();
+    const minSecondsBetween = 60;
+    if (nowTs - clockInTs < minSecondsBetween * 1000) {
+      return { success: false, error: 'Please wait at least 1 minute after clock in before clocking out' };
+    }
+
     const breaks = (data.breaks || []) as BreakRecord[];
     const hasActiveBreak = breaks.some((b: BreakRecord) => !b.endTime);
     if (hasActiveBreak) {

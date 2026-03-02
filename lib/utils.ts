@@ -88,6 +88,34 @@ export function formatDateTime(date: string | Date): string {
   return `${formatDate(date)} at ${formatTime(date)}`;
 }
 
+/**
+ * Convert a stored ISO timestamp (UTC) to "YYYY-MM-DDTHH:mm" in the viewer's local timezone.
+ * Use for <input type="datetime-local" /> value so management sees and edits times in local time.
+ * Safe to call on server (returns same format using server TZ); intended for client.
+ */
+export function toDateTimeLocalValue(isoString: string | null | undefined): string {
+  if (!isoString || !isoString.trim()) return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+/**
+ * Convert a datetime-local value ("YYYY-MM-DDTHH:mm") to ISO string (UTC) for API/store.
+ * The input is in the browser's local time; result is UTC so backend stores one source of truth.
+ */
+export function dateTimeLocalToISO(value: string | null | undefined): string {
+  if (!value || !value.trim()) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString();
+}
+
 export function getTodayDateString(): string {
   return new Date().toISOString().split('T')[0];
 }

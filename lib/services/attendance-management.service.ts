@@ -37,6 +37,7 @@ export async function updateAttendance(
       updatedAt: FieldValue.serverTimestamp(),
     };
 
+    // clockIn/clockOut: expect ISO strings (UTC). Client sends local time converted to ISO so storage is timezone-safe.
     if (updates.clockIn !== undefined) {
       if (updates.clockIn === '' || updates.clockIn === null) {
         updateData.clockIn = FieldValue.delete();

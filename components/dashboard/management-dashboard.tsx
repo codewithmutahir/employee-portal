@@ -19,7 +19,7 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
-import { formatDate, formatTime } from '@/lib/utils';
+import { formatDate, formatTime, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
 import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -344,8 +344,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         setAttForm((prev) => ({
           ...prev,
           date: att.date,
-          clockIn: att.clockIn ? new Date(att.clockIn).toISOString().slice(0, 16) : '',
-          clockOut: att.clockOut ? new Date(att.clockOut).toISOString().slice(0, 16) : '',
+          clockIn: toDateTimeLocalValue(att.clockIn) ?? '',
+          clockOut: toDateTimeLocalValue(att.clockOut) ?? '',
           payrollId: att.payrollId || '',
           noShowReason: att.noShowReason || '',
         }));
@@ -455,8 +455,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         selectedEmployee.id,
         attForm.date,
         {
-          clockIn: attForm.clockIn.trim() === '' ? '' : attForm.clockIn || undefined,
-          clockOut: attForm.clockOut.trim() === '' ? '' : attForm.clockOut || undefined,
+          clockIn: attForm.clockIn.trim() === '' ? '' : dateTimeLocalToISO(attForm.clockIn) || undefined,
+          clockOut: attForm.clockOut.trim() === '' ? '' : dateTimeLocalToISO(attForm.clockOut) || undefined,
           breaks: breaks,
           payrollId: attForm.payrollId || undefined,
           noShowReason: attForm.noShowReason || undefined,
@@ -1570,12 +1570,12 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                                   <Label className="text-xs">Start Time</Label>
                                   <Input
                                     type="datetime-local"
-                                    value={breakRecord.startTime ? new Date(breakRecord.startTime).toISOString().slice(0, 16) : ''}
+                                    value={toDateTimeLocalValue(breakRecord.startTime)}
                                     onChange={(e) => {
                                       const updatedBreaks = [...(attendance.breaks || [])];
                                       updatedBreaks[index] = {
                                         ...breakRecord,
-                                        startTime: new Date(e.target.value).toISOString(),
+                                        startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
                                       };
                                       setAttendance({ ...attendance, breaks: updatedBreaks });
                                     }}
@@ -1585,7 +1585,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                                   <Label className="text-xs">End Time</Label>
                                   <Input
                                     type="datetime-local"
-                                    value={breakRecord.endTime ? new Date(breakRecord.endTime).toISOString().slice(0, 16) : ''}
+                                    value={toDateTimeLocalValue(breakRecord.endTime)}
                                     onChange={(e) => {
                                       const updatedBreaks = [...(attendance.breaks || [])];
                                       const endTime = e.target.value ? new Date(e.target.value).toISOString() : undefined;
