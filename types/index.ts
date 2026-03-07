@@ -38,6 +38,8 @@ export interface Compensation {
   hourlyRate?: number; // Hourly wage rate for timecard calculations
 }
 
+export type AttendanceStatus = 'On Time' | 'Late In' | 'Absent' | 'Half Day';
+
 export interface AttendanceRecord {
   id: string;
   employeeId: string;
@@ -46,6 +48,7 @@ export interface AttendanceRecord {
   clockOut?: string; // ISO timestamp
   breaks: BreakRecord[];
   totalHours?: number; // Calculated
+  status?: AttendanceStatus; // Computed and returned by the API
   editedBy?: string; // User ID - tracks who edited (employee or management)
   editedAt?: string; // ISO timestamp
   isEditedByManagement: boolean;

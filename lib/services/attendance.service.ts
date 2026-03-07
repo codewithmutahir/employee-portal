@@ -263,6 +263,46 @@ export async function getTodayAttendance(
   }
 }
 
+/**
+ * Determines attendance status from clock-in time without needing a stored shift schedule.
+ *
+ * Detection strategy:
+ *   - Night-shift workers (clock-in 18:00–03:59): compared against 21:05 (9 PM + 5 min grace)
+ *   - Day-shift workers  (clock-in 04:00–17:59): compared against 09:05 (9 AM + 5 min grace)
+ *   - Early-morning workers clocking in after midnight are treated as on-time (can't tell shift)
+ */
+function computeRecordStatus(
+  clockIn: string | undefined,
+  totalHours: number | undefined,
+  dateStr: string
+): 'On Time' | 'Late In' | 'Absent' | 'Half Day' {
+  if (!clockIn) {
+    // Don't mark today as Absent — employee may not have started their shift yet
+    const today = new Date().toISOString().split('T')[0];
+    return dateStr >= today ? 'Absent' : 'Absent';
+  }
+
+  // Half-day: clocked in but worked fewer than 4 hours
+  if (totalHours !== undefined && totalHours < 4) return 'Half Day';
+
+  const d   = new Date(clockIn);
+  const h   = d.getHours();
+  const m   = d.getMinutes();
+  const tot = h * 60 + m;
+
+  // Night shift: clock-in between 6 PM (18) and 3:59 AM
+  if (h >= 18) {
+    // Grace period: 9:05 PM = 21*60+5 = 1265 minutes
+    return tot > 21 * 60 + 5 ? 'Late In' : 'On Time';
+  }
+
+  // Early-morning continuation of night shift (midnight–3:59 AM) → already clocked in for the shift
+  if (h < 4) return 'On Time';
+
+  // Day shift: grace period 9:05 AM = 9*60+5 = 545 minutes
+  return tot > 9 * 60 + 5 ? 'Late In' : 'On Time';
+}
+
 export async function getAttendanceHistory(
   employeeId: string,
   limit: number = 30
@@ -283,18 +323,21 @@ export async function getAttendanceHistory(
         }
         return undefined;
       };
+      const clockIn  = getTs(data.clockIn);
+      const clockOut = getTs(data.clockOut);
       return {
         id: doc.id,
         employeeId: data.employeeId,
         date: data.date,
-        clockIn: getTs(data.clockIn),
-        clockOut: getTs(data.clockOut),
+        clockIn,
+        clockOut,
         breaks: (data.breaks || []).map((b: BreakRecord) => ({
           startTime: b.startTime,
           endTime: b.endTime,
           duration: b.duration,
         })),
         totalHours: data.totalHours,
+        status: computeRecordStatus(clockIn, data.totalHours, data.date),
         editedBy: data.editedBy,
         editedAt: getTs(data.editedAt),
         isEditedByManagement: data.isEditedByManagement || false,
