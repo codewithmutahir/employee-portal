@@ -56,6 +56,15 @@ export async function PATCH(request: NextRequest) {
       return jsonSuccess({});
     }
 
+    if ('expoPushToken' in body) {
+      const result = await profileService.saveExpoPushToken(
+        auth.employeeId,
+        typeof body.expoPushToken === 'string' ? body.expoPushToken : null
+      );
+      if (!result.success) return jsonError(result.error ?? 'Failed to save push token', 400);
+      return jsonSuccess({});
+    }
+
     const profileUpdates: Record<string, unknown> = {};
     const allowed = [
       'displayName', 'phoneNumber', 'address', 'city', 'state', 'zipCode', 'country',

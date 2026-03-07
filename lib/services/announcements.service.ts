@@ -39,6 +39,94 @@ function toAnnouncement(doc: {
   };
 }
 
+/**
+ * Sends Expo push notifications to all employees matching the announcement target.
+ * Uses the Expo Push API directly (no extra SDK). Chunked at 100 per request.
+ */
+async function sendPushNotificationsToTargets(
+  title: string,
+  content: string,
+  target: AnnouncementTarget,
+  targetDepartment: string | undefined
+): Promise<void> {
+  try {
+    const coll = adminDb.collection('employees').where('status', '==', 'active');
+    const query =
+      target === 'employees'
+        ? coll.where('role', '==', 'employee')
+        : target === 'management'
+          ? coll.where('role', '==', 'management')
+          : target === 'department' && targetDepartment
+            ? coll.where('department', '==', targetDepartment)
+            : coll;
+
+    const snapshot = await query.get();
+    const tokens: string[] = [];
+
+    snapshot.docs.forEach((doc) => {
+      const token = doc.data()?.expoPushToken;
+      console.log(`[Push] Employee ${doc.id} token: ${token ?? 'MISSING'}`);
+      if (token && typeof token === 'string' && token.startsWith('ExponentPushToken[')) {
+        tokens.push(token);
+      }
+    });
+
+    console.log(`[Push] Target="${target}", employees scanned: ${snapshot.size}, valid tokens: ${tokens.length}`);
+    if (tokens.length === 0) {
+      console.warn('[Push] No valid Expo push tokens found — no notifications sent');
+      return;
+    }
+
+    const body = content.length > 200 ? content.substring(0, 197) + '…' : content;
+
+    // Expo Push API accepts up to 100 messages per request
+    const CHUNK_SIZE = 100;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < tokens.length; i += CHUNK_SIZE) {
+      const chunk = tokens.slice(i, i + CHUNK_SIZE);
+      const messages = chunk.map((to) => ({
+        to,
+        title: `📢 ${title}`,
+        body,
+        data: { screen: 'Announcements' },
+        sound: 'default',
+        priority: 'high',
+        channelId: 'announcements',
+      }));
+
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messages),
+      });
+
+      if (response.ok) {
+        const result = (await response.json()) as { data: Array<{ status: string; message?: string }> };
+        console.log('[Push] Expo API response:', JSON.stringify(result));
+        (result.data ?? []).forEach((receipt) => {
+          receipt.status === 'ok' ? successCount++ : failCount++;
+        });
+      } else {
+        const errText = await response.text().catch(() => '');
+        failCount += chunk.length;
+        console.error('[Push] Expo push API HTTP error:', response.status, errText);
+      }
+    }
+
+    console.log(
+      `[Announcements] Push notifications — sent: ${successCount}, failed: ${failCount}`
+    );
+  } catch (error: unknown) {
+    console.error('[Announcements] sendPushNotificationsToTargets error:', error);
+  }
+}
+
 async function sendAnnouncementEmailToTargets(
   _announcementId: string,
   title: string,
@@ -129,6 +217,14 @@ export async function createAnnouncement(
         console.error('Failed to send announcement emails:', emailError);
       }
     }
+
+    // Send push notifications to all targeted employees (fire-and-forget)
+    sendPushNotificationsToTargets(
+      data.title,
+      data.content,
+      data.target,
+      data.targetDepartment
+    ).catch((err) => console.error('Failed to send push notifications:', err));
 
     return { success: true, announcementId: announcementRef.id };
   } catch (error: unknown) {

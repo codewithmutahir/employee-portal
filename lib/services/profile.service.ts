@@ -394,6 +394,24 @@ export async function deleteEmergencyContact(
   }
 }
 
+export async function saveExpoPushToken(
+  employeeId: string,
+  token: string | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const employeeRef = adminDb.collection('employees').doc(employeeId);
+    await employeeRef.update({
+      expoPushToken: token ?? null,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Save Expo push token error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function getNotificationPreferences(employeeId: string): Promise<{
   emailNotifications: boolean;
   announcementEmails: boolean;

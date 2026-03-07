@@ -3,6 +3,107 @@ const admin = require('firebase-admin');
 
 admin.initializeApp();
 
+/**
+ * Sends Expo push notifications to all targeted employees when a new
+ * announcement document is created in Firestore.
+ *
+ * NOTE: Push notifications are already sent by the Next.js API route
+ * (announcements.service.ts) when an announcement is created via the web
+ * portal. This Cloud Function acts as a safety net for announcements created
+ * directly in Firestore (e.g. via the Firebase console or other tooling).
+ *
+ * If you ONLY create announcements through the web portal API, you can
+ * comment this function out to avoid duplicate notifications.
+ */
+exports.sendAnnouncementPushNotifications = functions.firestore
+  .document('announcements/{announcementId}')
+  .onCreate(async (snap, context) => {
+    const data = snap.data();
+    if (!data) return null;
+
+    // Skip if the web portal already handled this (set a flag to avoid duplicates)
+    if (data.pushSent === true) return null;
+
+    const title = data.title || 'New Announcement';
+    const content = data.content || '';
+    const target = data.target || 'all';
+    const targetDepartment = data.targetDepartment || null;
+    const body = content.length > 200 ? content.substring(0, 197) + '…' : content;
+
+    try {
+      // Build employee query based on announcement target
+      let query = admin.firestore().collection('employees').where('status', '==', 'active');
+      if (target === 'employees') {
+        query = query.where('role', '==', 'employee');
+      } else if (target === 'management') {
+        query = query.where('role', '==', 'management');
+      } else if (target === 'department' && targetDepartment) {
+        query = query.where('department', '==', targetDepartment);
+      }
+
+      const snapshot = await query.get();
+      const tokens = [];
+
+      snapshot.forEach((doc) => {
+        const token = doc.data().expoPushToken;
+        if (token && typeof token === 'string' && token.startsWith('ExponentPushToken[')) {
+          tokens.push(token);
+        }
+      });
+
+      if (tokens.length === 0) {
+        console.log('[PushNotif] No tokens found for target:', target);
+        return null;
+      }
+
+      // Chunk into batches of 100 (Expo Push API limit)
+      const CHUNK_SIZE = 100;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < tokens.length; i += CHUNK_SIZE) {
+        const chunk = tokens.slice(i, i + CHUNK_SIZE);
+        const messages = chunk.map((to) => ({
+          to,
+          title: `📢 ${title}`,
+          body,
+          data: { screen: 'Announcements' },
+          sound: 'default',
+          priority: 'high',
+          channelId: 'announcements',
+        }));
+
+        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(messages),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          (result.data || []).forEach((receipt) => {
+            receipt.status === 'ok' ? successCount++ : failCount++;
+          });
+        } else {
+          failCount += chunk.length;
+          console.error('[PushNotif] Expo API error:', response.status);
+        }
+      }
+
+      console.log(
+        `[PushNotif] Announcement "${title}" — sent: ${successCount}, failed: ${failCount}`
+      );
+      return null;
+    } catch (error) {
+      console.error('[PushNotif] sendAnnouncementPushNotifications error:', error);
+      return null;
+    }
+  });
+
 // Mailtrap configuration - set these in Firebase config
 const MAILTRAP_API_TOKEN = functions.config().mailtrap?.api_token;
 const MAILTRAP_SENDER_EMAIL = functions.config().mailtrap?.sender_email || 'noreply@employeeportal.com';
