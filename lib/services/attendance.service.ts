@@ -263,44 +263,83 @@ export async function getTodayAttendance(
   }
 }
 
+/** Minutes from midnight (0–1439) for a given ISO clock-in time. */
+function clockInToMinutes(clockIn: string): number {
+  const d = new Date(clockIn);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
 /**
- * Determines attendance status from clock-in time without needing a stored shift schedule.
- *
- * Detection strategy:
- *   - Night-shift workers (clock-in 18:00–03:59): compared against 21:05 (9 PM + 5 min grace)
- *   - Day-shift workers  (clock-in 04:00–17:59): compared against 09:05 (9 AM + 5 min grace)
- *   - Early-morning workers clocking in after midnight are treated as on-time (can't tell shift)
+ * Clusters clock-in times (in minutes) by proximity. Times within MAX_GAP minutes
+ * are considered the same shift; otherwise a new cluster starts. Handles morning,
+ * evening, and night shifts without any fixed thresholds.
  */
-function computeRecordStatus(
+function clusterClockInTimes(minutes: number[], maxGapMinutes: number = 240): number[][] {
+  if (minutes.length === 0) return [];
+  const sorted = [...minutes].sort((a, b) => a - b);
+  const clusters: number[][] = [];
+  let current: number[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap <= maxGapMinutes) {
+      current.push(sorted[i]);
+    } else {
+      clusters.push(current);
+      current = [sorted[i]];
+    }
+  }
+  clusters.push(current);
+  return clusters;
+}
+
+/** Median of an array of numbers. */
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Infers "expected start" times from an employee's own clock-in history (one per
+ * shift cluster), then decides On Time vs Late In using a grace period. No
+ * hardcoded 9 AM / 9 PM — works for morning, evening, and night shifts.
+ */
+const GRACE_MINUTES = 10;
+const MIN_CLOCK_INS_FOR_INFERENCE = 2;
+
+function inferStatusFromHistory(
   clockIn: string | undefined,
   totalHours: number | undefined,
-  dateStr: string
+  allClockInMinutes: number[]
 ): 'On Time' | 'Late In' | 'Absent' | 'Half Day' {
-  if (!clockIn) {
-    // Don't mark today as Absent — employee may not have started their shift yet
-    const today = new Date().toISOString().split('T')[0];
-    return dateStr >= today ? 'Absent' : 'Absent';
-  }
-
-  // Half-day: clocked in but worked fewer than 4 hours
+  if (!clockIn) return 'Absent';
   if (totalHours !== undefined && totalHours < 4) return 'Half Day';
 
-  const d   = new Date(clockIn);
-  const h   = d.getHours();
-  const m   = d.getMinutes();
-  const tot = h * 60 + m;
-
-  // Night shift: clock-in between 6 PM (18) and 3:59 AM
-  if (h >= 18) {
-    // Grace period: 9:05 PM = 21*60+5 = 1265 minutes
-    return tot > 21 * 60 + 5 ? 'Late In' : 'On Time';
+  const minutes = allClockInMinutes.filter((m) => m >= 0);
+  if (minutes.length < MIN_CLOCK_INS_FOR_INFERENCE) {
+    return 'On Time'; // Not enough data to infer; default to generous
   }
 
-  // Early-morning continuation of night shift (midnight–3:59 AM) → already clocked in for the shift
-  if (h < 4) return 'On Time';
+  const clusters = clusterClockInTimes(minutes);
+  const medians = clusters.map((c) => median(c));
+  const thisMin = clockInToMinutes(clockIn);
 
-  // Day shift: grace period 9:05 AM = 9*60+5 = 545 minutes
-  return tot > 9 * 60 + 5 ? 'Late In' : 'On Time';
+  // Which cluster does this clock-in belong to? Nearest median.
+  let nearestMedian = medians[0];
+  let bestDist = Math.abs(thisMin - medians[0]);
+  for (let i = 1; i < medians.length; i++) {
+    const d = Math.abs(thisMin - medians[i]);
+    if (d < bestDist) {
+      bestDist = d;
+      nearestMedian = medians[i];
+    }
+  }
+
+  const threshold = nearestMedian + GRACE_MINUTES;
+  return thisMin > threshold ? 'Late In' : 'On Time';
 }
 
 export async function getAttendanceHistory(
@@ -315,36 +354,50 @@ export async function getAttendanceHistory(
       .limit(limit)
       .get();
 
-    return snapshot.docs.map((doc) => {
+    const getTs = (v: unknown): string | undefined => {
+      if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
+        return (v as { toDate: () => Date }).toDate().toISOString();
+      }
+      return undefined;
+    };
+
+    const rows = snapshot.docs.map((doc) => {
       const data = doc.data();
-      const getTs = (v: unknown): string | undefined => {
-        if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
-          return (v as { toDate: () => Date }).toDate().toISOString();
-        }
-        return undefined;
-      };
-      const clockIn  = getTs(data.clockIn);
+      const clockIn = getTs(data.clockIn);
       const clockOut = getTs(data.clockOut);
       return {
         id: doc.id,
-        employeeId: data.employeeId,
-        date: data.date,
+        data,
         clockIn,
         clockOut,
-        breaks: (data.breaks || []).map((b: BreakRecord) => ({
-          startTime: b.startTime,
-          endTime: b.endTime,
-          duration: b.duration,
-        })),
-        totalHours: data.totalHours,
-        status: computeRecordStatus(clockIn, data.totalHours, data.date),
-        editedBy: data.editedBy,
-        editedAt: getTs(data.editedAt),
-        isEditedByManagement: data.isEditedByManagement || false,
-        createdAt: getTs(data.createdAt),
-        updatedAt: getTs(data.updatedAt),
-      } as AttendanceRecord;
+        totalHours: data.totalHours as number | undefined,
+        getTs,
+      };
     });
+
+    const allClockInMinutes = rows
+      .filter((r) => r.clockIn)
+      .map((r) => clockInToMinutes(r.clockIn!));
+
+    return rows.map(({ id, data, clockIn, clockOut, totalHours, getTs }) => ({
+      id,
+      employeeId: data.employeeId,
+      date: data.date,
+      clockIn,
+      clockOut,
+      breaks: (data.breaks || []).map((b: BreakRecord) => ({
+        startTime: b.startTime,
+        endTime: b.endTime,
+        duration: b.duration,
+      })),
+      totalHours,
+      status: inferStatusFromHistory(clockIn, totalHours, allClockInMinutes),
+      editedBy: data.editedBy,
+      editedAt: getTs(data.editedAt),
+      isEditedByManagement: data.isEditedByManagement || false,
+      createdAt: getTs(data.createdAt),
+      updatedAt: getTs(data.updatedAt),
+    })) as AttendanceRecord[];
   } catch (error: unknown) {
     console.error('Get attendance history error:', error);
     return [];
