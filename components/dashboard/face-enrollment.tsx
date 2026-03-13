@@ -87,6 +87,13 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
         return;
       }
       
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError(
+          "Camera access is not available. Use HTTPS or localhost, and ensure your browser supports camera access."
+        );
+        setCameraActive(false);
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
       });

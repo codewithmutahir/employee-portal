@@ -139,6 +139,11 @@ export function FaceVerificationDialog({
           throw new Error("Camera not available. Please close and reopen.");
         }
         
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error(
+            "Camera access is not available. Use HTTPS or localhost, and ensure your browser supports camera access."
+          );
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
         });
