@@ -8,6 +8,49 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Announcement, AnnouncementPriority, AnnouncementTarget } from '@/types';
 import { sendAnnouncementEmail } from './email.service';
 
+type ExpoPushTicket =
+  | { status: 'ok'; id: string }
+  | { status: 'error'; message?: string; details?: Record<string, unknown> };
+
+type ExpoPushSendResponse = { data: ExpoPushTicket[] };
+
+type ExpoPushReceipt =
+  | { status: 'ok' }
+  | { status: 'error'; message?: string; details?: Record<string, unknown> };
+
+type ExpoPushReceiptsResponse = { data: Record<string, ExpoPushReceipt> };
+
+const EXPO_PUSH_SEND_URL = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function redactExpoToken(token: string): string {
+  const m = token.match(/^ExponentPushToken\[(.+)\]$/);
+  if (!m) return 'ExponentPushToken[redacted]';
+  const inner = m[1] ?? '';
+  const tail = inner.slice(-6);
+  return `ExponentPushToken[***${tail}]`;
+}
+
+async function fetchExpoReceipts(ticketIds: string[]): Promise<Record<string, ExpoPushReceipt>> {
+  const res = await fetch(EXPO_PUSH_RECEIPTS_URL, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ids: ticketIds }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Expo receipts HTTP ${res.status} ${errText}`);
+  }
+  const json = (await res.json()) as ExpoPushReceiptsResponse;
+  return json.data ?? {};
+}
+
 function toAnnouncement(doc: {
   exists: boolean;
   id: string;
@@ -47,7 +90,8 @@ async function sendPushNotificationsToTargets(
   title: string,
   content: string,
   target: AnnouncementTarget,
-  targetDepartment: string | undefined
+  targetDepartment: string | undefined,
+  opts?: { announcementId?: string }
 ): Promise<void> {
   try {
     const coll = adminDb.collection('employees').where('status', '==', 'active');
@@ -83,6 +127,8 @@ async function sendPushNotificationsToTargets(
     const CHUNK_SIZE = 100;
     let successCount = 0;
     let failCount = 0;
+    const ticketIds: string[] = [];
+    const ticketErrors: Array<{ message?: string; details?: Record<string, unknown> }> = [];
 
     for (let i = 0; i < tokens.length; i += CHUNK_SIZE) {
       const chunk = tokens.slice(i, i + CHUNK_SIZE);
@@ -94,9 +140,10 @@ async function sendPushNotificationsToTargets(
         sound: 'default',
         priority: 'high',
         channelId: 'announcements',
+        ttl: 120,
       }));
 
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      const response = await fetch(EXPO_PUSH_SEND_URL, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -107,10 +154,16 @@ async function sendPushNotificationsToTargets(
       });
 
       if (response.ok) {
-        const result = (await response.json()) as { data: Array<{ status: string; message?: string }> };
+        const result = (await response.json()) as ExpoPushSendResponse;
         console.log('[Push] Expo API response:', JSON.stringify(result));
-        (result.data ?? []).forEach((receipt) => {
-          receipt.status === 'ok' ? successCount++ : failCount++;
+        (result.data ?? []).forEach((ticket) => {
+          if (ticket.status === 'ok') {
+            successCount++;
+            ticketIds.push(ticket.id);
+          } else {
+            failCount++;
+            ticketErrors.push({ message: ticket.message, details: ticket.details });
+          }
         });
       } else {
         const errText = await response.text().catch(() => '');
@@ -122,6 +175,55 @@ async function sendPushNotificationsToTargets(
     console.log(
       `[Announcements] Push notifications — sent: ${successCount}, failed: ${failCount}`
     );
+
+    // Persist a push log + attempt receipts fetch (best-effort) for observability.
+    try {
+      const logRef = adminDb.collection('push_logs').doc();
+      await logRef.set({
+        type: 'announcement',
+        announcementId: opts?.announcementId ?? null,
+        target,
+        targetDepartment: targetDepartment ?? null,
+        employeesScanned: snapshot.size,
+        tokensFound: tokens.length,
+        tokenSamples: tokens.slice(0, 5).map(redactExpoToken),
+        ticketIdsCount: ticketIds.length,
+        ticketErrorsCount: ticketErrors.length,
+        ticketErrors: ticketErrors.slice(0, 5),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      if (ticketIds.length > 0) {
+        const attempts = [2000, 5000, 10000];
+        let receipts: Record<string, ExpoPushReceipt> = {};
+        for (const waitMs of attempts) {
+          await sleep(waitMs);
+          receipts = await fetchExpoReceipts(ticketIds);
+          if (Object.keys(receipts).length >= Math.min(ticketIds.length, 20)) break;
+        }
+
+        const receiptValues = Object.values(receipts);
+        const receiptOk = receiptValues.filter((r) => r.status === 'ok').length;
+        const receiptErr = receiptValues.filter((r) => r.status === 'error').length;
+
+        await logRef.update({
+          receiptFetchedAt: FieldValue.serverTimestamp(),
+          receiptCount: Object.keys(receipts).length,
+          receiptOk,
+          receiptErr,
+          receiptErrors: Object.entries(receipts)
+            .filter(([, r]) => r.status === 'error')
+            .slice(0, 10)
+            .map(([id, r]) => ({
+              id,
+              message: (r as any).message,
+              details: (r as any).details,
+            })),
+        });
+      }
+    } catch (e) {
+      console.error('[Push] Failed to write push_logs / receipts:', e);
+    }
   } catch (error: unknown) {
     console.error('[Announcements] sendPushNotificationsToTargets error:', error);
   }
@@ -223,7 +325,8 @@ export async function createAnnouncement(
       data.title,
       data.content,
       data.target,
-      data.targetDepartment
+      data.targetDepartment,
+      { announcementId: announcementRef.id }
     ).catch((err) => console.error('Failed to send push notifications:', err));
 
     return { success: true, announcementId: announcementRef.id };
