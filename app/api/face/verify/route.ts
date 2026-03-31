@@ -14,7 +14,8 @@ function l2Distance(a: number[], b: number[]): number {
   return Math.sqrt(sum);
 }
 
-const MATCH_THRESHOLD = 0.6;
+// Slightly more forgiving threshold for real-world lighting / camera variance.
+const MATCH_THRESHOLD = 0.7;
 
 /** POST /api/face/verify – verify face descriptor against stored descriptor. Body: { descriptor: number[] }. Returns { match: boolean }. */
 export async function POST(request: NextRequest) {

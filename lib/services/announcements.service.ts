@@ -116,7 +116,7 @@ async function sendPushNotificationsToTargets(
     });
 
     console.log(`[Push] Target="${target}", employees scanned: ${snapshot.size}, valid tokens: ${tokens.length}`);
-    if (tokens.length === 0) {
+            if (tokens.length === 0) {
       console.warn('[Push] No valid Expo push tokens found — no notifications sent');
       return;
     }
