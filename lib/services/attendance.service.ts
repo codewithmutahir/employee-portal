@@ -225,51 +225,44 @@ export async function endBreak(
   }
 }
 
-export async function getTodayAttendance(
-  employeeId: string,
-  dateOverride?: string
-): Promise<AttendanceRecord | null> {
-  try {
-    const dateKey = getDateKey(dateOverride);
-    const todayRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
-    const todayDoc = await todayRef.get();
+const MINUTES_PER_DAY = 1440;
 
-    if (todayDoc.exists) {
-      return docToAttendanceRecord(todayDoc, dateKey);
-    }
-
-    const yesterdayKey = getYesterdayDateString(dateKey);
-    const yesterdayRef = adminDb.collection('attendance').doc(`${employeeId}_${yesterdayKey}`);
-    const yesterdayDoc = await yesterdayRef.get();
-
-    if (yesterdayDoc.exists) {
-      const yesterdayData = yesterdayDoc.data();
-      if (yesterdayData?.clockIn && !yesterdayData?.clockOut) {
-        return docToAttendanceRecord(yesterdayDoc, yesterdayKey);
-      }
-    }
-
-    return null;
-  } catch (error: unknown) {
-    console.error('Get attendance error:', error);
-    return null;
-  }
-}
-
-/** Minutes from midnight (0–1439) for a given ISO clock-in time. */
+/** Minutes from midnight (0–1439) for a given ISO clock-in time (employee-local wall time). */
 function clockInToMinutes(clockIn: string): number {
   const d = new Date(clockIn);
   return d.getHours() * 60 + d.getMinutes();
 }
 
+/** Shortest distance between two times-of-day on a 24h circle (handles overnight). */
+function circularMinutesDistance(a: number, b: number): number {
+  const d = Math.abs(a - b);
+  return Math.min(d, MINUTES_PER_DAY - d);
+}
+
+/** Minutes moving forward on the circle from `start` to `end` (both 0–1439). */
+function forwardMinutesOnCircle(start: number, end: number): number {
+  if (end >= start) return end - start;
+  return MINUTES_PER_DAY - start + end;
+}
+
+/** When history mixes late-evening and early-morning clock-ins, map “next calendar morning” past midnight for linear clustering. */
+function expandMinutesForOvernightClustering(minutes: number[]): number[] {
+  if (minutes.length === 0) return minutes;
+  const hasEvening = minutes.some((m) => m >= 18 * 60);
+  const hasEarlyMorning = minutes.some((m) => m < 6 * 60);
+  if (!hasEvening || !hasEarlyMorning) return minutes;
+  return minutes.map((m) => (m < 12 * 60 ? m + MINUTES_PER_DAY : m));
+}
+
 /**
  * Clusters clock-in times (in minutes) by proximity. Times within MAX_GAP minutes
- * are considered the same shift; otherwise a new cluster starts. Handles morning,
- * evening, and night shifts without any fixed thresholds.
+ * are considered the same shift; otherwise a new cluster starts. Uses expanded
+ * timeline when evening + early-morning mixes appear (overnight shifts).
  */
 function clusterClockInTimes(minutes: number[], maxGapMinutes: number = 240): number[][] {
   if (minutes.length === 0) return [];
-  const sorted = [...minutes].sort((a, b) => a - b);
+  const expanded = expandMinutesForOvernightClustering(minutes);
+  const sorted = [...expanded].sort((a, b) => a - b);
   const clusters: number[][] = [];
   let current: number[] = [sorted[0]];
   for (let i = 1; i < sorted.length; i++) {
@@ -285,14 +278,18 @@ function clusterClockInTimes(minutes: number[], maxGapMinutes: number = 240): nu
   return clusters;
 }
 
-/** Median of an array of numbers. */
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
+/** Median on the expanded timeline; fold back to 0–1439 for “time of day” (overnight-aware). */
+function medianTimeOfDayFromExpandedCluster(cluster: number[]): number {
+  if (cluster.length === 0) return 0;
+  const sorted = [...cluster].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
+  const raw =
+    sorted.length % 2 === 1
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  let m = raw;
+  while (m >= MINUTES_PER_DAY) m -= MINUTES_PER_DAY;
+  return Math.round(m);
 }
 
 /**
@@ -302,6 +299,10 @@ function median(values: number[]): number {
  */
 const GRACE_MINUTES = 10;
 const MIN_CLOCK_INS_FOR_INFERENCE = 2;
+/** Clock-ins from this minute onward are treated as “evening” for overnight lateness. */
+const EVENING_START_MINUTES = 18 * 60;
+/** Clock-ins at or before this minute may be “next morning” after an evening shift start. */
+const MORNING_END_MINUTES = 8 * 60;
 
 function inferStatusFromHistory(
   clockIn: string | undefined,
@@ -317,22 +318,90 @@ function inferStatusFromHistory(
   }
 
   const clusters = clusterClockInTimes(minutes);
-  const medians = clusters.map((c) => median(c));
+  const medians = clusters.map((c) => medianTimeOfDayFromExpandedCluster(c));
   const thisMin = clockInToMinutes(clockIn);
 
-  // Which cluster does this clock-in belong to? Nearest median.
+  // Nearest shift cluster by circular distance (fixes 10pm vs 7am mis-grouping).
   let nearestMedian = medians[0];
-  let bestDist = Math.abs(thisMin - medians[0]);
+  let bestDist = circularMinutesDistance(thisMin, medians[0]);
   for (let i = 1; i < medians.length; i++) {
-    const d = Math.abs(thisMin - medians[i]);
+    const d = circularMinutesDistance(thisMin, medians[i]);
     if (d < bestDist) {
       bestDist = d;
       nearestMedian = medians[i];
     }
   }
 
-  const threshold = nearestMedian + GRACE_MINUTES;
-  return thisMin > threshold ? 'Late In' : 'On Time';
+  // Lateness: same “calendar segment” uses linear delta; evening start + early-morning clock-in uses forward distance on the circle.
+  let late = false;
+  if (thisMin >= nearestMedian) {
+    late = thisMin - nearestMedian > GRACE_MINUTES;
+  } else if (nearestMedian >= EVENING_START_MINUTES && thisMin <= MORNING_END_MINUTES) {
+    late = forwardMinutesOnCircle(nearestMedian, thisMin) > GRACE_MINUTES;
+  }
+
+  return late ? 'Late In' : 'On Time';
+}
+
+async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30): Promise<number[]> {
+  const snapshot = await adminDb
+    .collection('attendance')
+    .where('employeeId', '==', employeeId)
+    .orderBy('date', 'desc')
+    .limit(limit)
+    .get();
+
+  const mins: number[] = [];
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const ci = data?.clockIn;
+    if (ci && typeof (ci as { toDate?: () => Date }).toDate === 'function') {
+      const iso = (ci as { toDate: () => Date }).toDate().toISOString();
+      mins.push(clockInToMinutes(iso));
+    }
+  }
+  return mins;
+}
+
+export async function getTodayAttendance(
+  employeeId: string,
+  dateOverride?: string
+): Promise<AttendanceRecord | null> {
+  try {
+    const dateKey = getDateKey(dateOverride);
+    const todayRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
+    const todayDoc = await todayRef.get();
+
+    let record: AttendanceRecord | null = null;
+
+    if (todayDoc.exists) {
+      record = docToAttendanceRecord(todayDoc, dateKey);
+    } else {
+      const yesterdayKey = getYesterdayDateString(dateKey);
+      const yesterdayRef = adminDb.collection('attendance').doc(`${employeeId}_${yesterdayKey}`);
+      const yesterdayDoc = await yesterdayRef.get();
+
+      if (yesterdayDoc.exists) {
+        const yesterdayData = yesterdayDoc.data();
+        if (yesterdayData?.clockIn && !yesterdayData?.clockOut) {
+          record = docToAttendanceRecord(yesterdayDoc, yesterdayKey);
+        }
+      }
+    }
+
+    if (record?.clockIn) {
+      const mins = await fetchRecentClockInMinutes(employeeId, 30);
+      record = {
+        ...record,
+        status: inferStatusFromHistory(record.clockIn, record.totalHours, mins),
+      };
+    }
+
+    return record;
+  } catch (error: unknown) {
+    console.error('Get attendance error:', error);
+    return null;
+  }
 }
 
 export async function getAttendanceHistory(

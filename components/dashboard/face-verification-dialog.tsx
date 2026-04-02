@@ -14,9 +14,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/components/ui/use-toast";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { machine } from "os";
+import { loadFaceModels } from "@/lib/face-models";
 
-const MODELS_BASE = "/models";
 // STRICT face matching - lower = more strict (0.4-0.5 is recommended)
 // Same person typically has distance < 0.4
 // Different person typically has distance > 0.5
@@ -59,7 +58,6 @@ export function FaceVerificationDialog({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceApiRef = useRef<typeof import("face-api.js") | null>(null);
-  const modelsLoadedRef = useRef(false);
   const detectionStartTimeRef = useRef<number | null>(null);
   const verifiedRef = useRef(false);
   const detectionLoopStartedRef = useRef(false);
@@ -107,18 +105,10 @@ export function FaceVerificationDialog({
     async function init() {
       try {
         setStatusText("Loading face recognition...");
-        
-        const faceapi = await import("face-api.js");
-        faceApiRef.current = faceapi;
 
-        if (!modelsLoadedRef.current) {
-          await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
-            faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
-            faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
-          ]);
-          modelsLoadedRef.current = true;
-        }
+        // Uses the shared singleton – returns immediately if already preloaded
+        const faceapi = await loadFaceModels();
+        faceApiRef.current = faceapi;
 
         if (cancelled) return;
         

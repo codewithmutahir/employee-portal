@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Camera, UserPlus } from "lucide-react";
 import { saveEmployeeFaceDescriptor } from "@/app/actions/face";
+import { loadFaceModels } from "@/lib/face-models";
 
-const MODELS_BASE = "/models";
 const VIDEO_READY_WAIT_MS = 400;
 
 interface FaceEnrollmentProps {
@@ -40,28 +40,23 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
 
   useEffect(() => {
     let cancelled = false;
-    async function loadModels() {
+    async function initModels() {
       try {
-        const faceapi = await import("face-api.js");
+        // Uses the shared singleton – instant if already preloaded by the dashboard
+        const faceapi = await loadFaceModels();
         faceApiRef.current = faceapi;
-        
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_BASE + "/tiny_face_detector"),
-          faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_BASE + "/face_landmark_68"),
-          faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_BASE + "/face_recognition"),
-        ]);
-        
-        if (!cancelled) {
-          setModelsReady(true);
-        }
+        if (!cancelled) setModelsReady(true);
       } catch (err: any) {
         console.error("Model loading error:", err);
         if (!cancelled) {
-          setError(err?.message || "Failed to load face recognition models. Ensure /public/models contains the required model folders.");
+          setError(
+            err?.message ||
+              "Failed to load face recognition models. Ensure /public/models contains the required model folders."
+          );
         }
       }
     }
-    loadModels();
+    initModels();
     return () => {
       cancelled = true;
       stopCamera();

@@ -24,7 +24,7 @@ import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingU
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
+import { LineChart, Line, XAxis, Legend, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
 
 interface ManagementDashboardProps {
   employee: Employee;
@@ -136,7 +136,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       // Pass true to exclude management users
       const emps = await getAllEmployees(true);
       setEmployees(emps);
-      
+
       if (emps.length === 0) {
         toast({
           title: 'No employees found',
@@ -178,7 +178,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function handleSendEmployeeEmail() {
     if (!selectedEmployee) return;
-    
+
     setSendingEmployeeEmail(true);
     try {
       const result = await sendNotificationEmail(
@@ -694,7 +694,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   // Open edit dialog with current employee data
   function openEditDialog() {
     if (!selectedEmployee) return;
-    
+
     setEditEmployeeForm({
       displayName: selectedEmployee.displayName || '',
       email: selectedEmployee.email || '',
@@ -709,12 +709,12 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function handleEditEmployee() {
     if (!selectedEmployee) return;
-    
+
     setEditEmployeeLoading(true);
     try {
       // Build updates object with only changed fields
       const updates: any = {};
-      
+
       if (editEmployeeForm.displayName !== selectedEmployee.displayName) {
         updates.displayName = editEmployeeForm.displayName;
       }
@@ -730,13 +730,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       if (editEmployeeForm.phoneNumber !== (selectedEmployee.phoneNumber || '')) {
         updates.phoneNumber = editEmployeeForm.phoneNumber || null;
       }
-      
+
       // Handle date fields
       const currentDob = selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '';
       if (editEmployeeForm.dateOfBirth !== currentDob) {
         updates.dateOfBirth = editEmployeeForm.dateOfBirth || null;
       }
-      
+
       const currentHireDate = selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '';
       if (editEmployeeForm.hireDate !== currentHireDate) {
         updates.hireDate = editEmployeeForm.hireDate;
@@ -818,7 +818,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function handleDeleteEmployee() {
     if (!selectedEmployee) return;
-    
+
     setDeleteLoading(true);
     try {
       const result = await deleteEmployee(selectedEmployee.id, employee.id, true);
@@ -853,12 +853,12 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start flex-wrap">
         <div>
           <h2 className="text-3xl font-bold">Management Dashboard</h2>
           <p className="text-muted-foreground">Manage employees, attendance, and compensation</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap mt-2">
           <Button onClick={() => setAddEmployeeDialogOpen(true)} variant="default">
             <Plus className="mr-2 h-4 w-4" />
             Add Employee
@@ -933,11 +933,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                             <button
                               key={emp.id}
                               onClick={() => setSelectedEmployee(emp)}
-                              className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                                selectedEmployee?.id === emp.id
+                              className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedEmployee?.id === emp.id
                                   ? 'bg-primary text-primary-foreground'
                                   : 'hover:bg-accent'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center justify-between">
                                 <div>
@@ -946,16 +945,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                                   <p className="text-xs opacity-60">{emp.role}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className={`text-xs px-2 py-1 rounded-full ${
-                                    emp.status === 'active'
+                                  <span className={`text-xs px-2 py-1 rounded-full ${emp.status === 'active'
                                       ? 'bg-green-100 text-green-800'
                                       : 'bg-red-100 text-red-800'
-                                  }`}>
+                                    }`}>
                                     {emp.status}
                                   </span>
-                                  <div className={`w-2 h-2 rounded-full ${
-                                    emp.status === 'active' ? 'bg-green-500' : 'bg-red-500'
-                                  }`}></div>
+                                  <div className={`w-2 h-2 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-red-500'
+                                    }`}></div>
                                 </div>
                               </div>
                             </button>
@@ -969,11 +966,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         <button
                           key={emp.id}
                           onClick={() => setSelectedEmployee(emp)}
-                          className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                            selectedEmployee?.id === emp.id
+                          className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedEmployee?.id === emp.id
                               ? 'bg-primary text-primary-foreground'
                               : 'hover:bg-accent'
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <div>
@@ -982,16 +978,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                               <p className="text-xs opacity-60">{emp.role}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className={`text-xs px-2 py-1 rounded-full ${
-                                emp.status === 'active'
+                              <span className={`text-xs px-2 py-1 rounded-full ${emp.status === 'active'
                                   ? 'bg-green-100 text-green-800'
                                   : 'bg-red-100 text-red-800'
-                              }`}>
+                                }`}>
                                 {emp.status}
                               </span>
-                              <div className={`w-2 h-2 rounded-full ${
-                                emp.status === 'active' ? 'bg-green-500' : 'bg-red-500'
-                              }`}></div>
+                              <div className={`w-2 h-2 rounded-full ${emp.status === 'active' ? 'bg-green-500' : 'bg-red-500'
+                                }`}></div>
                             </div>
                           </div>
                         </button>
@@ -1060,30 +1054,28 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
               {upcomingAnniversaries.length > 0 ? (
                 <div className="space-y-3">
                   {upcomingAnniversaries.slice(0, 8).map((anniversary) => (
-                    <div 
-                      key={anniversary.employee.id} 
-                      className={`p-3 rounded-lg border ${
-                        anniversary.isMilestone 
+                    <div
+                      key={anniversary.employee.id}
+                      className={`p-3 rounded-lg border ${anniversary.isMilestone
                           ? anniversary.milestoneType === 'diamond' ? 'bg-purple-50 border-purple-200' :
                             anniversary.milestoneType === 'platinum' ? 'bg-slate-50 border-slate-300' :
-                            anniversary.milestoneType === 'gold' ? 'bg-yellow-50 border-yellow-200' :
-                            anniversary.milestoneType === 'silver' ? 'bg-gray-50 border-gray-300' :
-                            'bg-blue-50 border-blue-200'
+                              anniversary.milestoneType === 'gold' ? 'bg-yellow-50 border-yellow-200' :
+                                anniversary.milestoneType === 'silver' ? 'bg-gray-50 border-gray-300' :
+                                  'bg-blue-50 border-blue-200'
                           : 'bg-background'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-medium">{anniversary.employee.displayName}</p>
                             {anniversary.isMilestone && (
-                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
-                                anniversary.milestoneType === 'diamond' ? 'bg-purple-100 text-purple-700' :
-                                anniversary.milestoneType === 'platinum' ? 'bg-slate-200 text-slate-700' :
-                                anniversary.milestoneType === 'gold' ? 'bg-yellow-100 text-yellow-700' :
-                                anniversary.milestoneType === 'silver' ? 'bg-gray-200 text-gray-700' :
-                                'bg-blue-100 text-blue-700'
-                              }`}>
+                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${anniversary.milestoneType === 'diamond' ? 'bg-purple-100 text-purple-700' :
+                                  anniversary.milestoneType === 'platinum' ? 'bg-slate-200 text-slate-700' :
+                                    anniversary.milestoneType === 'gold' ? 'bg-yellow-100 text-yellow-700' :
+                                      anniversary.milestoneType === 'silver' ? 'bg-gray-200 text-gray-700' :
+                                        'bg-blue-100 text-blue-700'
+                                }`}>
                                 {anniversary.milestoneType === 'diamond' && <Gem className="h-3 w-3" />}
                                 {anniversary.milestoneType === 'platinum' && <Trophy className="h-3 w-3" />}
                                 {anniversary.milestoneType === 'gold' && <Medal className="h-3 w-3" />}
@@ -1101,10 +1093,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                             {anniversary.yearsCompleting} {anniversary.yearsCompleting === 1 ? 'Year' : 'Years'}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {anniversary.daysUntil === 0 
-                              ? 'Today!' 
-                              : anniversary.daysUntil === 1 
-                                ? 'Tomorrow' 
+                            {anniversary.daysUntil === 0
+                              ? 'Today!'
+                              : anniversary.daysUntil === 1
+                                ? 'Tomorrow'
                                 : `In ${anniversary.daysUntil} days`}
                           </p>
                         </div>
@@ -1146,13 +1138,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     </div>
                   )}
                 </div>
-                
+
                 {tenureStats.milestonesThisYear.length > 0 && (
                   <div>
                     <p className="text-sm font-medium mb-2">Milestones This Year</p>
                     <div className="flex flex-wrap gap-2">
                       {tenureStats.milestonesThisYear.map((m: { milestone: number; count: number }) => (
-                        <span 
+                        <span
                           key={m.milestone}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-100 text-green-700"
                         >
@@ -1171,7 +1163,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <div key={dist.range} className="flex items-center gap-2">
                         <span className="text-xs w-20 text-muted-foreground">{dist.range}</span>
                         <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div 
+                          <div
                             className="h-full bg-primary rounded-full transition-all"
                             style={{ width: `${dist.percentage}%` }}
                           />
@@ -1210,8 +1202,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     <div className="flex gap-2 flex-wrap">
                       <AlertDialog open={resendCredentialsDialogOpen} onOpenChange={setResendCredentialsDialogOpen}>
                         <AlertDialogTrigger asChild>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             disabled={resendCredentialsLoading || sendingEmployeeEmail}
                           >
                             {resendCredentialsLoading ? (
@@ -1242,9 +1234,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={handleSendEmployeeEmail}
                         disabled={sendingEmployeeEmail || resendCredentialsLoading}
                       >
@@ -1400,12 +1392,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           <div className="flex items-center gap-2">
                             <p className="font-medium">{tenure.label}</p>
                             {tenure.years >= 5 && (
-                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${
-                                tenure.years >= 25 ? 'bg-purple-100 text-purple-700' :
-                                tenure.years >= 20 ? 'bg-slate-200 text-slate-700' :
-                                tenure.years >= 10 ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-gray-200 text-gray-700'
-                              }`}>
+                              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${tenure.years >= 25 ? 'bg-purple-100 text-purple-700' :
+                                  tenure.years >= 20 ? 'bg-slate-200 text-slate-700' :
+                                    tenure.years >= 10 ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-gray-200 text-gray-700'
+                                }`}>
                                 {tenure.years >= 25 && <Gem className="h-3 w-3" />}
                                 {tenure.years >= 20 && tenure.years < 25 && <Trophy className="h-3 w-3" />}
                                 {tenure.years >= 10 && tenure.years < 20 && <Medal className="h-3 w-3" />}
@@ -1693,7 +1684,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       </Button>
                     </div>
                   )}
-                  
+
                   <div className="flex gap-2">
                     <Button onClick={() => loadAttendance()} variant="outline">Load</Button>
                     <Button onClick={handleSaveAttendance}>Save Attendance</Button>
@@ -1834,12 +1825,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          issue.status === 'open' ? 'bg-amber-100 text-amber-800' :
-                          issue.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                          issue.status === 'resolved' ? 'bg-green-100 text-green-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
+                        <span className={`text-xs px-2 py-1 rounded-full ${issue.status === 'open' ? 'bg-amber-100 text-amber-800' :
+                            issue.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                              issue.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                                'bg-gray-100 text-gray-800'
+                          }`}>
                           {issue.status.replace('_', ' ')}
                         </span>
                         {issueStatusUpdating === issue.id ? (
@@ -1979,202 +1969,204 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         ) : (
           <>
 
-          {/* Overall Statistics */}
-        {departmentStats && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Users className="mr-2 h-5 w-5" />
-                  Total Employees
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{departmentStats.overallStats.totalEmployees}</p>
-                <p className="text-sm text-muted-foreground">Active employees</p>
-              </CardContent>
-            </Card>
+            {/* Overall Statistics */}
+            {departmentStats && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Users className="mr-2 h-5 w-5" />
+                      Total Employees
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold">{departmentStats.overallStats.totalEmployees}</p>
+                    <p className="text-sm text-muted-foreground">Active employees</p>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <TrendingUp className="mr-2 h-5 w-5" />
-                  Average Attendance
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{departmentStats.overallStats.averageAttendanceRate}%</p>
-                <p className="text-sm text-muted-foreground">Last 30 days</p>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <TrendingUp className="mr-2 h-5 w-5" />
+                      Average Attendance
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold">{departmentStats.overallStats.averageAttendanceRate}%</p>
+                    <p className="text-sm text-muted-foreground">Last 30 days</p>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Calendar className="mr-2 h-5 w-5" />
-                  Total Hours Worked
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{departmentStats.overallStats.totalHoursWorked}h</p>
-                <p className="text-sm text-muted-foreground">Last 30 days</p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Department Performance */}
-          {departmentStats && departmentStats.departmentStats.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <BarChart3 className="mr-2 h-5 w-5" />
-                  Department Performance
-                </CardTitle>
-                <CardDescription>Attendance rates by department</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={departmentStats.departmentStats}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="department" angle={-45} textAnchor="end" height={80} />
-                      <YAxis />
-                      <Tooltip formatter={(value: number | undefined) => [`${value || 0}%`, 'Attendance Rate']} />
-                      <Bar dataKey="averageAttendance" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Department Distribution */}
-          {workforceInsights && workforceInsights.departmentDistribution.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <PieChart className="mr-2 h-5 w-5" />
-                  Department Distribution
-                </CardTitle>
-                <CardDescription>Employee distribution across departments</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie
-                        data={workforceInsights.departmentDistribution}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="count"
-                      >
-                        {workforceInsights.departmentDistribution.map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={`hsl(${index * 45}, 70%, 50%)`} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number | undefined) => [value || 0, 'Employees']} />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* Attendance Trends */}
-        {workforceInsights && workforceInsights.attendanceTrends.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <TrendingUp className="mr-2 h-5 w-5" />
-                Attendance Trends
-              </CardTitle>
-              <CardDescription>Daily attendance over the last 7 days</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={workforceInsights.attendanceTrends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="date"
-                      tickFormatter={(value) => {
-                        if (!value) return '';
-                        try {
-                          const date = new Date(value);
-                          if (isNaN(date.getTime())) return String(value);
-                          return date.toLocaleDateString('en-US', { weekday: 'short' });
-                        } catch {
-                          return String(value);
-                        }
-                      }}
-                    />
-                    <YAxis />
-                    <Tooltip
-                      labelFormatter={(value) => {
-                        if (!value) return '';
-                        try {
-                          const date = new Date(value);
-                          if (isNaN(date.getTime())) return String(value);
-                          return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-                        } catch {
-                          return String(value);
-                        }
-                      }}
-                      formatter={(value: number | undefined, name: string | undefined) => [
-                        (name === 'presentCount') ? `${value || 0}/${workforceInsights.attendanceTrends[0]?.totalEmployees || 0}` : (value || 0),
-                        (name === 'presentCount') ? 'Present Employees' : (name || '')
-                      ]}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="presentCount"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Calendar className="mr-2 h-5 w-5" />
+                      Total Hours Worked
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold">{departmentStats.overallStats.totalHoursWorked}h</p>
+                    <p className="text-sm text-muted-foreground">Last 30 days</p>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
 
-        {/* Top Performers */}
-        {workforceInsights && workforceInsights.topPerformers.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Performers</CardTitle>
-              <CardDescription>Employees with highest attendance rates (last 30 days)</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {workforceInsights.topPerformers.map((performer: any, index: number) => (
-                  <div key={performer.employeeId} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center font-bold">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="font-medium">{performer.displayName}</p>
-                        <p className="text-sm text-muted-foreground">{performer.department}</p>
-                      </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Department Performance */}
+              {departmentStats && departmentStats.departmentStats.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <BarChart3 className="mr-2 h-5 w-5" />
+                      Department Performance
+                    </CardTitle>
+                    <CardDescription>Attendance rates by department</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={departmentStats.departmentStats}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="department" angle={-45} textAnchor="end" height={80} />
+                          <YAxis />
+                          <Tooltip formatter={(value: number | undefined) => [`${value || 0}%`, 'Attendance Rate']} />
+                          <Bar dataKey="averageAttendance" fill="#3b82f6" />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
-                    <div className="text-right">
-                      <p className="font-bold">{performer.attendanceRate}%</p>
-                      <p className="text-sm text-muted-foreground">{performer.totalHours}h total</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Department Distribution */}
+              {workforceInsights && workforceInsights.departmentDistribution.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <PieChart className="mr-2 h-5 w-5" />
+                      Department Distribution
+                    </CardTitle>
+                    <CardDescription>Employee distribution across departments</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RechartsPieChart>
+                          <Pie
+                            data={workforceInsights.departmentDistribution}
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            fill="#8884d8"
+                            dataKey="count"
+                            label={({ name, value }) => `${name} (${value})`}
+                          >
+                            {workforceInsights.departmentDistribution.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={`hsl(${index * 45}, 70%, 50%)`} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value: number | undefined) => [value || 0, 'Employees']} />
+                          <Legend />
+                        </RechartsPieChart>
+                      </ResponsiveContainer>
                     </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Attendance Trends */}
+            {workforceInsights && workforceInsights.attendanceTrends.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <TrendingUp className="mr-2 h-5 w-5" />
+                    Attendance Trends
+                  </CardTitle>
+                  <CardDescription>Daily attendance over the last 7 days</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={workforceInsights.attendanceTrends}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(value) => {
+                            if (!value) return '';
+                            try {
+                              const date = new Date(value);
+                              if (isNaN(date.getTime())) return String(value);
+                              return date.toLocaleDateString('en-US', { weekday: 'short' });
+                            } catch {
+                              return String(value);
+                            }
+                          }}
+                        />
+                        <YAxis />
+                        <Tooltip
+                          labelFormatter={(value) => {
+                            if (!value) return '';
+                            try {
+                              const date = new Date(value);
+                              if (isNaN(date.getTime())) return String(value);
+                              return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+                            } catch {
+                              return String(value);
+                            }
+                          }}
+                          formatter={(value: number | undefined, name: string | undefined) => [
+                            (name === 'presentCount') ? `${value || 0}/${workforceInsights.attendanceTrends[0]?.totalEmployees || 0}` : (value || 0),
+                            (name === 'presentCount') ? 'Present Employees' : (name || '')
+                          ]}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="presentCount"
+                          stroke="#10b981"
+                          strokeWidth={2}
+                          dot={{ fill: '#10b981', strokeWidth: 2, r: 4 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        </>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Top Performers */}
+            {workforceInsights && workforceInsights.topPerformers.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Performers</CardTitle>
+                  <CardDescription>Employees with highest attendance rates (last 30 days)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {workforceInsights.topPerformers.map((performer: any, index: number) => (
+                      <div key={performer.employeeId} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center font-bold">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <p className="font-medium">{performer.displayName}</p>
+                            <p className="text-sm text-muted-foreground">{performer.department}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold">{performer.attendanceRate}%</p>
+                          <p className="text-sm text-muted-foreground">{performer.totalHours}h total</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
       </div>
 
@@ -2234,7 +2226,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 <Label htmlFor="newRole">Role *</Label>
                 <Select
                   value={addEmployeeForm.role}
-                  onValueChange={(value: 'employee' | 'management') => 
+                  onValueChange={(value: 'employee' | 'management') =>
                     setAddEmployeeForm({ ...addEmployeeForm, role: value })
                   }
                 >

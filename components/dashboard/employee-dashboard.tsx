@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
+import { preloadFaceModels } from "@/lib/face-models";
 import { createIssue } from "@/app/actions/issues";
 import type { IssueCategory } from "@/types";
 import AttendanceHistory from "./attendance-history";
@@ -107,6 +108,19 @@ export default function EmployeeDashboard({
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load when employee changes
   }, [employee.id]);
+
+  // Kick off face-model download in the background as soon as the dashboard
+  // is visible.  Uses requestIdleCallback when available so it doesn't
+  // compete with the initial data fetch.
+  useEffect(() => {
+    const kick = () => preloadFaceModels();
+    if (typeof requestIdleCallback !== "undefined") {
+      const id = requestIdleCallback(kick, { timeout: 4000 });
+      return () => cancelIdleCallback(id);
+    }
+    const t = setTimeout(kick, 1500);
+    return () => clearTimeout(t);
+  }, []);
 
   async function loadData() {
     setLoading(true);

@@ -343,7 +343,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start flex-wrap">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Megaphone className="h-5 w-5" />
@@ -359,7 +359,7 @@ export function Announcements({ employee, isManagement }: AnnouncementsProps) {
           {isManagement && (
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button className='mt-2'>
                   <Plus className="mr-2 h-4 w-4" />
                   New Announcement
                 </Button>

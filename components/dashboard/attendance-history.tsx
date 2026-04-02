@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, Clock, LogOut, AlertTriangle, CheckCircle, Clock4 } from "lucide-react";
 import { formatDate, formatTime } from "@/lib/utils";
+import { resolveAttendanceStatusLabel } from "@/lib/attendance-status";
+import type { AttendanceStatus } from "@/types";
 
 interface AttendanceHistoryProps {
   records: AttendanceRecord[];
@@ -24,20 +26,40 @@ export default function AttendanceHistory({
   const hasMore = records.length > limit;
 
   const getStatusBadge = (record: AttendanceRecord) => {
-    if (!record.clockIn) {
+    const label = resolveAttendanceStatusLabel(record);
+
+    if (label === "Absent") {
       return (
-        <Badge variant="outline" className="text-gray-500">
+        <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50">
           <Clock4 className="w-3 h-3 mr-1" />
-          No Clock In
+          Absent
         </Badge>
       );
     }
 
-    if (!record.clockOut) {
+    if (label === "Partial") {
       return (
-        <Badge variant="secondary" className="text-yellow-600 bg-yellow-50">
+        <Badge variant="secondary" className="text-amber-800 bg-amber-50 border-amber-200">
           <Clock className="w-3 h-3 mr-1" />
-          Partial
+          In progress
+        </Badge>
+      );
+    }
+
+    const s = label as AttendanceStatus;
+    if (s === "Late In") {
+      return (
+        <Badge variant="secondary" className="text-amber-900 bg-amber-100 border-amber-200">
+          <AlertTriangle className="w-3 h-3 mr-1" />
+          Late In
+        </Badge>
+      );
+    }
+    if (s === "Half Day") {
+      return (
+        <Badge variant="outline" className="text-slate-600 bg-slate-50 border-slate-200">
+          <Clock4 className="w-3 h-3 mr-1" />
+          Half Day
         </Badge>
       );
     }
@@ -45,7 +67,7 @@ export default function AttendanceHistory({
     return (
       <Badge variant="default" className="text-green-700 bg-green-50 border-green-200">
         <CheckCircle className="w-3 h-3 mr-1" />
-        Present
+        On Time
       </Badge>
     );
   };
