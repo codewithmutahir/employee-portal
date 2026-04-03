@@ -19,8 +19,8 @@ interface FaceEnrollmentProps {
 }
 
 export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnrollmentProps) {
-  const [loading, setLoading] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
@@ -38,27 +38,31 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
     setCameraActive(false);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function initModels() {
-      try {
-        // Uses the shared singleton – instant if already preloaded by the dashboard
-        const faceapi = await loadFaceModels();
-        faceApiRef.current = faceapi;
-        if (!cancelled) setModelsReady(true);
-      } catch (err: any) {
-        console.error("Model loading error:", err);
-        if (!cancelled) {
-          setError(
-            err?.message ||
-              "Failed to load face recognition models. Ensure /public/models contains the required model folders."
-          );
-        }
-      }
+  const ensureModelsReady = useCallback(async () => {
+    if (modelsReady && faceApiRef.current) return faceApiRef.current;
+
+    setModelsLoading(true);
+    setError(null);
+    try {
+      // Uses the shared singleton – instant if already preloaded by the dashboard
+      const faceapi = await loadFaceModels();
+      faceApiRef.current = faceapi;
+      setModelsReady(true);
+      return faceapi;
+    } catch (err: any) {
+      console.error("Model loading error:", err);
+      setError(
+        err?.message ||
+          "Failed to load face recognition models. Ensure /public/models contains the required model folders."
+      );
+      return null;
+    } finally {
+      setModelsLoading(false);
     }
-    initModels();
+  }, [modelsReady]);
+
+  useEffect(() => {
     return () => {
-      cancelled = true;
       stopCamera();
     };
   }, [stopCamera]);
@@ -66,6 +70,10 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
   async function startCamera() {
     setError(null);
     setVideoReady(false);
+
+    const faceapi = await ensureModelsReady();
+    if (!faceapi) return;
+
     setCameraActive(true);
     await new Promise(resolve => setTimeout(resolve, 150));
     
@@ -191,21 +199,26 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
           <p className="text-sm text-destructive">{error}</p>
         )}
         <div className="relative flex justify-center rounded-lg overflow-hidden bg-muted aspect-video max-h-64">
-          {!modelsReady && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <LoadingSpinner size="lg" label="Loading models" />
-            </div>
-          )}
-          {modelsReady && !cameraActive && (
+          {!cameraActive && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-4">
               <Camera className="h-12 w-12 text-muted-foreground" />
               <p className="text-sm text-muted-foreground text-center">
                 Start camera to register your face
               </p>
-              <Button onClick={startCamera}>Start camera</Button>
+              <Button
+                onClick={startCamera}
+                onMouseEnter={() => {
+                  if (!modelsReady && !modelsLoading) {
+                    void ensureModelsReady();
+                  }
+                }}
+                disabled={modelsLoading}
+              >
+                {modelsLoading ? <LoadingSpinner label="Preparing camera" /> : "Start camera"}
+              </Button>
             </div>
           )}
-          {modelsReady && cameraActive && (
+          {cameraActive && (
             <>
               {!videoReady && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted/80 z-10">
