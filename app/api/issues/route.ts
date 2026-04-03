@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as issuesService from '@/lib/services/issues.service';
 
 /** GET /api/issues – list all issues (management only). */
@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API get issues error:', err);
+    reportApiException(err, { route: '/api/issues', action: 'get-issues' });
     return jsonSuccess([]);
   }
 }
@@ -40,6 +41,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({});
   } catch (err) {
     console.error('API create issue error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/issues', action: 'create-issue' });
   }
 }

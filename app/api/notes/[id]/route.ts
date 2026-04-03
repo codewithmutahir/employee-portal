@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
 /** PATCH /api/notes/:id – update note (management only). Body: { content, isInternal }. */
@@ -24,7 +24,7 @@ export async function PATCH(
     return jsonSuccess({});
   } catch (err) {
     console.error('API update note error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/notes/[id]', action: 'update-note' });
   }
 }
 
@@ -45,6 +45,6 @@ export async function DELETE(
     return jsonSuccess({});
   } catch (err) {
     console.error('API delete note error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/notes/[id]', action: 'delete-note' });
   }
 }

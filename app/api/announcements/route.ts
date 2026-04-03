@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as announcementsService from '@/lib/services/announcements.service';
 
 /** GET /api/announcements – list announcements for the authenticated user (filtered by role/department). */
@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API get announcements error:', err);
+    reportApiException(err, { route: '/api/announcements', action: 'get-announcements' });
     return jsonSuccess([]);
   }
 }
@@ -53,6 +54,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({ announcementId: result.announcementId });
   } catch (err) {
     console.error('API create announcement error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/announcements', action: 'create-announcement' });
   }
 }

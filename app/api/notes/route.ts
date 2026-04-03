@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized, jsonForbidden } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonForbidden, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
 /** GET /api/notes?employeeId= – get notes for employeeId (self or management). */
@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API get notes error:', err);
+    reportApiException(err, { route: '/api/notes', action: 'get-notes' });
     return jsonSuccess([]);
   }
 }
@@ -49,6 +50,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({});
   } catch (err) {
     console.error('API add note error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/notes', action: 'add-note' });
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as faceService from '@/lib/services/face.service';
 
 /** L2 distance between two 128-d vectors. Face match typically uses threshold ~0.6. */
@@ -39,6 +39,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({ match, enrolled: true, distance });
   } catch (err) {
     console.error('API face verify error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/face/verify', action: 'verify-face' });
   }
 }

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { captureError } from '@/lib/monitoring/capture-error';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -48,19 +49,34 @@ export default function LoginPage() {
     } catch (error: any) {
       // Show user-friendly error messages
       let errorMessage = 'Login failed. Please try again.';
+      let isExpectedAuthError = false;
 
       if (error.code === 'auth/user-not-found') {
+        isExpectedAuthError = true;
         errorMessage = 'No account found with this email address.';
       } else if (error.code === 'auth/wrong-password') {
+        isExpectedAuthError = true;
         errorMessage = 'Incorrect password.';
       } else if (error.code === 'auth/invalid-email') {
+        isExpectedAuthError = true;
         errorMessage = 'Please enter a valid email address.';
       } else if (error.code === 'auth/too-many-requests') {
+        isExpectedAuthError = true;
         errorMessage = 'Too many failed attempts. Please try again later.';
       } else if (error.message.includes('Employee record not found')) {
         errorMessage = 'Account setup incomplete. Please contact your administrator.';
       } else if (error.message.includes('terminated')) {
         errorMessage = 'Your account has been terminated.';
+      }
+
+      // Capture unexpected auth/login failures without polluting Sentry with common user input errors.
+      if (!isExpectedAuthError) {
+        captureError(error, {
+          area: 'auth',
+          feature: 'login',
+          action: 'submit',
+          extra: { emailDomain: email.split('@')[1] || 'unknown' },
+        });
       }
 
       toast({

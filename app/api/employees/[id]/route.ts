@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as employeesService from '@/lib/services/employees.service';
 
 /** GET /api/employees/:id – get one employee (management only, or self). */
@@ -24,7 +24,7 @@ export async function GET(
     return jsonSuccess(data);
   } catch (err) {
     console.error('API get employee error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/employees/[id]', action: 'get-employee' });
   }
 }
 
@@ -46,7 +46,7 @@ export async function PATCH(
     return jsonSuccess({});
   } catch (err) {
     console.error('API update employee error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/employees/[id]', action: 'update-employee' });
   }
 }
 
@@ -69,6 +69,6 @@ export async function DELETE(
     return jsonSuccess({});
   } catch (err) {
     console.error('API delete employee error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/employees/[id]', action: 'delete-employee' });
   }
 }

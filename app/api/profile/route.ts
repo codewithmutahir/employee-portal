@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import { getEmployee } from '@/lib/services/employees.service';
 import * as profileService from '@/lib/services/profile.service';
 
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('API get profile error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/profile', action: 'get-profile' });
   }
 }
 
@@ -81,6 +81,6 @@ export async function PATCH(request: NextRequest) {
     return jsonSuccess({});
   } catch (err) {
     console.error('API update profile error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/profile', action: 'update-profile' });
   }
 }

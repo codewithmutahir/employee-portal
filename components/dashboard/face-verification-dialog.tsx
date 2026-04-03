@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { loadFaceModels } from "@/lib/face-models";
+import { captureError } from "@/lib/monitoring/capture-error";
 
 // STRICT face matching - lower = more strict (0.4-0.5 is recommended)
 // Same person typically has distance < 0.4
@@ -62,6 +63,7 @@ export function FaceVerificationDialog({
   const verifiedRef = useRef(false);
   const detectionLoopStartedRef = useRef(false);
   const noFaceCountRef = useRef(0);
+  const detectionErrorCapturedRef = useRef(false);
   const onVerifiedRef = useRef(onVerified);
   const onOpenChangeRef = useRef(onOpenChange);
   onVerifiedRef.current = onVerified;
@@ -91,6 +93,7 @@ export function FaceVerificationDialog({
       verifiedRef.current = false;
       detectionLoopStartedRef.current = false;
       noFaceCountRef.current = 0;
+      detectionErrorCapturedRef.current = false;
       return;
     }
 
@@ -163,6 +166,7 @@ export function FaceVerificationDialog({
       } catch (err: any) {
         if (!cancelled) {
           console.error("Face verification init error:", err);
+          captureError(err, { area: "face", feature: "verification", action: "initialize" });
           setStep("error");
           setError(err?.message || "Failed to start camera. Please allow camera access.");
         }
@@ -312,6 +316,10 @@ export function FaceVerificationDialog({
       } catch (err: any) {
         if (frameCount % 60 === 0) {
           console.error("Face detection error:", err?.message);
+          if (!detectionErrorCapturedRef.current) {
+            detectionErrorCapturedRef.current = true;
+            captureError(err, { area: "face", feature: "verification", action: "detection-loop" });
+          }
         }
       }
       
@@ -341,6 +349,7 @@ export function FaceVerificationDialog({
     detectionStartTimeRef.current = null;
     verifiedRef.current = false;
     noFaceCountRef.current = 0;
+    detectionErrorCapturedRef.current = false;
   };
 
   return (

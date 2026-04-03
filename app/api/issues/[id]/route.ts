@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as issuesService from '@/lib/services/issues.service';
 import type { IssueStatus } from '@/types';
 
@@ -30,6 +30,6 @@ export async function PATCH(
     return jsonSuccess({});
   } catch (err) {
     console.error('API update issue error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/issues/[id]', action: 'update-issue' });
   }
 }

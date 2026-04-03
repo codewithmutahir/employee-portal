@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as exportService from '@/lib/services/export.service';
 
 /** GET /api/export/me – export authenticated employee's data (employee + compensation + attendance). */
@@ -14,6 +14,6 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API export me error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/export/me', action: 'export-me' });
   }
 }

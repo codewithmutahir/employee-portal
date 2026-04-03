@@ -4,6 +4,8 @@
  * Server-only: uses process.env for Mailtrap credentials.
  */
 
+import { captureApiError } from '@/lib/monitoring/capture-error';
+
 const MAILTRAP_API_TOKEN = process.env.MAILTRAP_API_TOKEN;
 const MAILTRAP_SENDER_EMAIL = process.env.MAILTRAP_SENDER_EMAIL || 'noreply@employeeportal.com';
 const MAILTRAP_SENDER_NAME = process.env.MAILTRAP_SENDER_NAME || 'Employee Portal';
@@ -55,6 +57,11 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error('Mailtrap API error:', errorData);
+      captureApiError(new Error(`Mailtrap API HTTP ${response.status}`), {
+        feature: 'email',
+        action: 'send',
+        extra: { status: response.status, provider: 'mailtrap' },
+      });
       return {
         success: false,
         error: (errorData as { message?: string }).message || `HTTP ${response.status}`,
@@ -69,6 +76,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   } catch (error: unknown) {
     const err = error as Error;
     console.error('Error sending email:', err);
+    captureApiError(err, { feature: 'email', action: 'send', extra: { provider: 'mailtrap' } });
     return { success: false, error: err.message };
   }
 }

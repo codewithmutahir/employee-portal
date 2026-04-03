@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonUnauthorized, reportApiException } from '@/lib/api/response';
 import * as attendanceService from '@/lib/services/attendance.service';
 
 /** GET /api/attendance/history?limit=30 – attendance history for the authenticated employee. */
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API attendance history error:', err);
+    reportApiException(err, { route: '/api/attendance/history', action: 'get-history' });
     return jsonSuccess([]);
   }
 }

@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Camera, UserPlus } from "lucide-react";
 import { saveEmployeeFaceDescriptor } from "@/app/actions/face";
 import { loadFaceModels } from "@/lib/face-models";
+import { captureError } from "@/lib/monitoring/capture-error";
 
 const VIDEO_READY_WAIT_MS = 400;
 
@@ -51,6 +52,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
       return faceapi;
     } catch (err: any) {
       console.error("Model loading error:", err);
+      captureError(err, { area: "face", feature: "enrollment", action: "load-models" });
       setError(
         err?.message ||
           "Failed to load face recognition models. Ensure /public/models contains the required model folders."
@@ -123,6 +125,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
       }
     } catch (err: any) {
       console.error("Camera error:", err);
+      captureError(err, { area: "face", feature: "enrollment", action: "start-camera" });
       setError(err?.message || "Could not access camera. Please allow camera access and try again.");
       setCameraActive(false);
       setVideoReady(false);
@@ -170,6 +173,7 @@ export function FaceEnrollment({ employeeId, onEnrolled, isReRegister }: FaceEnr
       }
     } catch (err: any) {
       console.error("Face capture error:", err);
+      captureError(err, { area: "face", feature: "enrollment", action: "capture-and-save" });
       setError(err?.message || "Capture failed. Check lighting and try again.");
     }
     setCapturing(false);

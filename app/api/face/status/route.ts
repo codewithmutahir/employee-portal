@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonUnauthorized, reportApiException } from '@/lib/api/response';
 import * as faceService from '@/lib/services/face.service';
 
 /** GET /api/face/status – returns whether the authenticated employee has a face descriptor (enrolled). */
@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess({ enrolled: !!descriptor });
   } catch (err) {
     console.error('API face status error:', err);
+    reportApiException(err, { route: '/api/face/status', action: 'face-status' });
     return jsonSuccess({ enrolled: false });
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
 /** POST /api/notes/:id/respond – add employee response to note. Body: { response }. */
@@ -23,6 +23,6 @@ export async function POST(
     return jsonSuccess({});
   } catch (err) {
     console.error('API note respond error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/notes/[id]/respond', action: 'respond-note' });
   }
 }

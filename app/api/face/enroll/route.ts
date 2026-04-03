@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as faceService from '@/lib/services/face.service';
 
 /** POST /api/face/enroll – save face descriptor for the authenticated employee. Body: { descriptor: number[] } (128-dim). */
@@ -19,6 +19,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({});
   } catch (err) {
     console.error('API face enroll error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/face/enroll', action: 'enroll-face' });
   }
 }

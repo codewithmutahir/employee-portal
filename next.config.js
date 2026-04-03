@@ -1,3 +1,5 @@
+const { withSentryConfig } = require("@sentry/nextjs");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -12,7 +14,10 @@ const nextConfig = {
     }
     return config;
   },
-}
+};
 
-module.exports = nextConfig
+module.exports = withSentryConfig(nextConfig, {
+  // Keep build output clean.
+  silent: true,
+});
 

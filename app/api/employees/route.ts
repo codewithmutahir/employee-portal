@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as employeesService from '@/lib/services/employees.service';
 
 /** GET /api/employees – list employees (management only). Query: excludeManagement=true. */
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     return jsonSuccess(data);
   } catch (err) {
     console.error('API get employees error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/employees', action: 'get-employees' });
   }
 }
 
@@ -52,6 +52,6 @@ export async function POST(request: NextRequest) {
     return jsonSuccess({ userId: result.userId });
   } catch (err) {
     console.error('API create employee error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/employees', action: 'create-employee' });
   }
 }

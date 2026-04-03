@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as announcementsService from '@/lib/services/announcements.service';
 
 /** PATCH /api/announcements/:id – update announcement (management only). */
@@ -25,7 +25,7 @@ export async function PATCH(
     return jsonSuccess({});
   } catch (err) {
     console.error('API update announcement error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/announcements/[id]', action: 'update-announcement' });
   }
 }
 
@@ -46,6 +46,6 @@ export async function DELETE(
     return jsonSuccess({});
   } catch (err) {
     console.error('API delete announcement error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/announcements/[id]', action: 'delete-announcement' });
   }
 }

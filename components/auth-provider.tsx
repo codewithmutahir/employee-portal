@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import { getCurrentUser, getEmployeeData } from '@/lib/auth';
 import { Employee } from '@/types';
+import { captureError } from '@/lib/monitoring/capture-error';
 
 interface AuthContextType {
   user: User | null;
@@ -37,6 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
+        captureError(error, { area: 'auth', feature: 'session', action: 'initialize' });
         // Don't set loading to false if there's an error, let it retry
       } finally {
         setLoading(false);

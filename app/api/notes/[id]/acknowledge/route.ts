@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
-import { jsonSuccess, jsonError, jsonUnauthorized } from '@/lib/api/response';
+import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
 /** POST /api/notes/:id/acknowledge – acknowledge note for the authenticated employee. */
@@ -20,6 +20,6 @@ export async function POST(
     return jsonSuccess({});
   } catch (err) {
     console.error('API acknowledge note error:', err);
-    return jsonError('Internal server error', 500);
+    return jsonServerError(err, { route: '/api/notes/[id]/acknowledge', action: 'acknowledge-note' });
   }
 }
