@@ -2,20 +2,10 @@ import { NextRequest } from 'next/server';
 import { verifyAuth } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as faceService from '@/lib/services/face.service';
-
-/** L2 distance between two 128-d vectors. Face match typically uses threshold ~0.6. */
-function l2Distance(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length !== 128) return Infinity;
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) {
-    const d = (a[i] ?? 0) - (b[i] ?? 0);
-    sum += d * d;
-  }
-  return Math.sqrt(sum);
-}
-
-// Slightly more forgiving threshold for real-world lighting / camera variance.
-const MATCH_THRESHOLD = 0.7;
+import {
+  euclideanDistance,
+  FACE_DESCRIPTOR_MATCH_THRESHOLD,
+} from '@/lib/face-match';
 
 /** POST /api/face/verify – verify face descriptor against stored descriptor. Body: { descriptor: number[] }. Returns { match: boolean }. */
 export async function POST(request: NextRequest) {
@@ -34,8 +24,8 @@ export async function POST(request: NextRequest) {
       return jsonSuccess({ match: false, enrolled: false });
     }
 
-    const distance = l2Distance(descriptor, stored);
-    const match = distance <= MATCH_THRESHOLD;
+    const distance = euclideanDistance(descriptor, stored);
+    const match = distance <= FACE_DESCRIPTOR_MATCH_THRESHOLD;
     return jsonSuccess({ match, enrolled: true, distance });
   } catch (err) {
     console.error('API face verify error:', err);

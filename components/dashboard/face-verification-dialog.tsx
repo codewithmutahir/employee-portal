@@ -16,13 +16,18 @@ import { CheckCircle2, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { loadFaceModels } from "@/lib/face-models";
 import { captureError } from "@/lib/monitoring/capture-error";
+import {
+  averageFaceDescriptors,
+  euclideanDistance,
+  FACE_DESCRIPTOR_MATCH_THRESHOLD,
+} from "@/lib/face-match";
 
-// STRICT face matching - lower = more strict (0.4-0.5 is recommended)
-// Same person typically has distance < 0.4
-// Different person typically has distance > 0.5
-const FACE_MATCH_THRESHOLD = 0.45;
 // How long to hold face steady for verification (in ms)
 const HOLD_DURATION_MS = 2000;
+// While holding, sample descriptors to average out single-frame noise
+const DESCRIPTOR_SAMPLE_INTERVAL_MS = 220;
+const DESCRIPTOR_MAX_SAMPLES = 6;
+const DESCRIPTOR_SAMPLING_START_RATIO = 0.35; // start collecting after 35% of hold
 // Minimum confidence score for face detection
 const MIN_DETECTION_SCORE = 0.3;
 // Input size for face detector (higher = more accurate but slower)
@@ -63,6 +68,8 @@ export function FaceVerificationDialog({
   const verifiedRef = useRef(false);
   const detectionLoopStartedRef = useRef(false);
   const noFaceCountRef = useRef(0);
+  const descriptorSamplesRef = useRef<number[][]>([]);
+  const lastDescriptorSampleAtRef = useRef(0);
   const detectionErrorCapturedRef = useRef(false);
   const onVerifiedRef = useRef(onVerified);
   const onOpenChangeRef = useRef(onOpenChange);
@@ -93,6 +100,8 @@ export function FaceVerificationDialog({
       verifiedRef.current = false;
       detectionLoopStartedRef.current = false;
       noFaceCountRef.current = 0;
+      descriptorSamplesRef.current = [];
+      lastDescriptorSampleAtRef.current = 0;
       detectionErrorCapturedRef.current = false;
       return;
     }
@@ -225,6 +234,8 @@ export function FaceVerificationDialog({
           // No face detected - reset progress
           setFaceDetected(false);
           detectionStartTimeRef.current = null;
+          descriptorSamplesRef.current = [];
+          lastDescriptorSampleAtRef.current = 0;
           setProgress(0);
           noFaceCountRef.current++;
           
@@ -270,6 +281,18 @@ export function FaceVerificationDialog({
         const elapsed = Date.now() - detectionStartTimeRef.current;
         const progressPercent = Math.min((elapsed / HOLD_DURATION_MS) * 100, 100);
         setProgress(progressPercent);
+
+        // Collect multiple embeddings during the hold so one noisy frame does not fail a real user
+        if (
+          elapsed >= HOLD_DURATION_MS * DESCRIPTOR_SAMPLING_START_RATIO &&
+          descriptorSamplesRef.current.length < DESCRIPTOR_MAX_SAMPLES
+        ) {
+          const now = Date.now();
+          if (now - lastDescriptorSampleAtRef.current >= DESCRIPTOR_SAMPLE_INTERVAL_MS) {
+            lastDescriptorSampleAtRef.current = now;
+            descriptorSamplesRef.current.push(Array.from(det.descriptor));
+          }
+        }
         
         // Update status based on progress
         if (progressPercent < 30) {
@@ -286,11 +309,14 @@ export function FaceVerificationDialog({
           setStatusText("Verifying identity...");
           setStep("verifying");
           
-          // Verify face match with STRICT threshold
-          const descriptor = Array.from(det.descriptor);
-          const distance = api.euclideanDistance(descriptor, storedDescriptor);
+          const samples = descriptorSamplesRef.current;
+          const descriptor =
+            samples.length >= 2
+              ? averageFaceDescriptors(samples)
+              : Array.from(det.descriptor);
+          const distance = euclideanDistance(descriptor, storedDescriptor);
           
-          if (distance < FACE_MATCH_THRESHOLD) {
+          if (distance <= FACE_DESCRIPTOR_MATCH_THRESHOLD) {
             setStep("success");
             setStatusText("Verified successfully!");
             
@@ -301,13 +327,12 @@ export function FaceVerificationDialog({
           } else {
             setStep("error");
             
-            // Give specific feedback based on how far off it was
-            if (distance > 0.7) {
+            if (distance > 0.9) {
               setError("This face does not match the registered employee. Access denied.");
-            } else if (distance > 0.55) {
+            } else if (distance > 0.8) {
               setError("Face verification failed. This doesn't appear to be the registered employee.");
             } else {
-              setError("Face didn't match clearly. Try better lighting or re-register your face.");
+              setError("We couldn't confirm a match. Try again, or re-register your face in Settings if this keeps happening.");
             }
           }
           return;
@@ -349,6 +374,8 @@ export function FaceVerificationDialog({
     detectionStartTimeRef.current = null;
     verifiedRef.current = false;
     noFaceCountRef.current = 0;
+    descriptorSamplesRef.current = [];
+    lastDescriptorSampleAtRef.current = 0;
     detectionErrorCapturedRef.current = false;
   };
 
