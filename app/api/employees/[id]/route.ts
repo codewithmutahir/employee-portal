@@ -28,21 +28,21 @@ export async function GET(
   }
 }
 
-/** PATCH /api/employees/:id – update employee (admin only). */
+/** PATCH /api/employees/:id – update employee (management or admin). Past hire dates require admin (enforced in service). */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  const admin = requireAdmin(auth);
-  if (!admin) return jsonUnauthorized();
+  const staff = requireStaff(auth);
+  if (!staff) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Employee id required');
 
   try {
     const body = await request.json().catch(() => ({}));
-    const result = await employeesService.updateEmployee(id, body, admin.employeeId);
+    const result = await employeesService.updateEmployee(id, body, staff.employeeId);
     if (!result.success) return jsonError(result.error ?? 'Failed to update employee', 400);
     return jsonSuccess({});
   } catch (err) {

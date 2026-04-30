@@ -49,7 +49,7 @@ export default function AttendanceHistory({
     const s = label as AttendanceStatus;
     if (s === "Late In") {
       return (
-        <Badge variant="secondary" className="text-amber-900 bg-amber-100 border-amber-200">
+        <Badge variant="secondary" className="text-red-900 bg-red-100 border-red-300">
           <AlertTriangle className="w-3 h-3 mr-1" />
           Late In
         </Badge>
@@ -121,8 +121,11 @@ export default function AttendanceHistory({
     <div className="space-y-4">
       {displayRecords.length > 0 ? (
         <div className="space-y-3">
-          {displayRecords.map((record) => (
-            <Card key={record.id} className="hover:shadow-md transition-shadow">
+          {displayRecords.map((record) => {
+            const statusLabel = resolveAttendanceStatusLabel(record);
+            const isLate = statusLabel === 'Late In';
+            return (
+            <Card key={record.id} className={`hover:shadow-md transition-shadow ${isLate ? 'border-red-300 bg-red-50/50' : ''}`}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-2">
@@ -150,10 +153,10 @@ export default function AttendanceHistory({
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 text-sm">
                       {record.clockIn && (
                         <div className="flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-green-600" />
+                          <Clock className={`w-4 h-4 ${isLate ? 'text-red-600' : 'text-green-600'}`} />
                           <div>
                             <p className="text-muted-foreground text-xs">Clock In</p>
-                            <p className="font-medium">{formatTime(record.clockIn)}</p>
+                            <p className={`font-medium ${isLate ? 'text-red-600' : ''}`}>{formatTime(record.clockIn)}</p>
                           </div>
                         </div>
                       )}
@@ -179,6 +182,12 @@ export default function AttendanceHistory({
                       )}
                     </div>
 
+                    {isLate && (
+                      <p className="text-sm text-red-600 font-medium border border-red-200 bg-red-50/80 rounded-md px-3 py-2">
+                        Late: clock-in was more than 15 minutes after your scheduled start time.
+                      </p>
+                    )}
+
                     {/* Breaks */}
                     {record.breaks && record.breaks.length > 0 && (
                       <div className="text-xs text-muted-foreground">
@@ -198,7 +207,8 @@ export default function AttendanceHistory({
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
 
           {hasMore && showViewAll && (
             <div className="text-center pt-2">

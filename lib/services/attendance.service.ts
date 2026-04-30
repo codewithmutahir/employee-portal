@@ -297,7 +297,7 @@ function medianTimeOfDayFromExpandedCluster(cluster: number[]): number {
  * shift cluster), then decides On Time vs Late In using a grace period. No
  * hardcoded 9 AM / 9 PM — works for morning, evening, and night shifts.
  */
-const GRACE_MINUTES = 10;
+const GRACE_MINUTES = 15;
 const MIN_CLOCK_INS_FOR_INFERENCE = 2;
 /** Clock-ins from this minute onward are treated as “evening” for overnight lateness. */
 const EVENING_START_MINUTES = 18 * 60;
@@ -343,6 +343,33 @@ function inferStatusFromHistory(
   return late ? 'Late In' : 'On Time';
 }
 
+/**
+ * Schedule-aware status: if a scheduleStart (HH:mm) is provided, use it directly
+ * with 15 min grace. Otherwise, fall back to history-based inference.
+ */
+function determineAttendanceStatus(
+  clockIn: string | undefined,
+  totalHours: number | undefined,
+  allClockInMinutes: number[],
+  scheduleStart?: string
+): 'On Time' | 'Late In' | 'Absent' | 'Half Day' {
+  if (!clockIn) return 'Absent';
+  if (totalHours !== undefined && totalHours < 4) return 'Half Day';
+
+  if (scheduleStart) {
+    const [hStr, mStr] = scheduleStart.split(':');
+    const scheduleMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
+    const clockInMinutes = clockInToMinutes(clockIn);
+    // Forward distance on circle handles overnight
+    const diff = forwardMinutesOnCircle(scheduleMinutes, clockInMinutes);
+    // If the employee is more than 12 hours away, they're probably early not late
+    if (diff > 720) return 'On Time';
+    return diff > GRACE_MINUTES ? 'Late In' : 'On Time';
+  }
+
+  return inferStatusFromHistory(clockIn, totalHours, allClockInMinutes);
+}
+
 async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30): Promise<number[]> {
   const snapshot = await adminDb
     .collection('attendance')
@@ -365,7 +392,8 @@ async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30)
 
 export async function getTodayAttendance(
   employeeId: string,
-  dateOverride?: string
+  dateOverride?: string,
+  scheduleStart?: string
 ): Promise<AttendanceRecord | null> {
   try {
     const dateKey = getDateKey(dateOverride);
@@ -393,7 +421,7 @@ export async function getTodayAttendance(
       const mins = await fetchRecentClockInMinutes(employeeId, 30);
       record = {
         ...record,
-        status: inferStatusFromHistory(record.clockIn, record.totalHours, mins),
+        status: determineAttendanceStatus(record.clockIn, record.totalHours, mins, scheduleStart),
       };
     }
 
@@ -406,7 +434,8 @@ export async function getTodayAttendance(
 
 export async function getAttendanceHistory(
   employeeId: string,
-  limit: number = 30
+  limit: number = 30,
+  scheduleStart?: string
 ): Promise<AttendanceRecord[]> {
   try {
     const snapshot = await adminDb
@@ -453,7 +482,7 @@ export async function getAttendanceHistory(
         duration: b.duration,
       })),
       totalHours,
-      status: inferStatusFromHistory(clockIn, totalHours, allClockInMinutes),
+      status: determineAttendanceStatus(clockIn, totalHours, allClockInMinutes, scheduleStart),
       editedBy: data.editedBy,
       editedAt: getTs(data.editedAt),
       isEditedByManagement: data.isEditedByManagement || false,

@@ -10,6 +10,17 @@ async function assertAdmin(actorId: string): Promise<{ ok: true } | { ok: false;
   return { ok: true };
 }
 
+async function assertManagementOrAdmin(
+  actorId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const actor = await employeesService.getEmployee(actorId);
+  if (!actor) return { ok: false, error: 'Unauthorized' };
+  if (actor.role !== 'management' && actor.role !== 'admin') {
+    return { ok: false, error: 'Unauthorized' };
+  }
+  return { ok: true };
+}
+
 export async function getEmployee(employeeId: string) {
   return employeesService.getEmployee(employeeId);
 }
@@ -37,7 +48,7 @@ export async function updateEmployee(
   updates: Parameters<typeof employeesService.updateEmployee>[1],
   updatedBy: string
 ) {
-  const gate = await assertAdmin(updatedBy);
+  const gate = await assertManagementOrAdmin(updatedBy);
   if (!gate.ok) return { success: false as const, error: gate.error };
   return employeesService.updateEmployee(employeeId, updates, updatedBy);
 }

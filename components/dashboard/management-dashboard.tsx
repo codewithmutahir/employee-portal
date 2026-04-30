@@ -20,6 +20,7 @@ import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
+import { workingDaysInMonth, salaryPerDayForMonth } from '@/lib/payroll-helpers';
 import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,6 +30,16 @@ import { LineChart, Line, XAxis, Legend, YAxis, CartesianGrid, Tooltip, Responsi
 interface ManagementDashboardProps {
   employee: Employee;
 }
+
+const WEEKDAY_OPTIONS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
 
 export default function ManagementDashboard({ employee }: ManagementDashboardProps) {
   const isAdmin = employee.role === 'admin';
@@ -82,6 +93,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     salary: '',
     allowance: '',
     bonus: '',
+    loanDeduction: '',
+    lateDeduction: '',
+    leaveBalance: '',
     currency: 'USD',
   });
 
@@ -110,6 +124,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     phoneNumber: '',
     dateOfBirth: '',
     hireDate: new Date().toISOString().split('T')[0],
+    scheduleStart: '09:00',
+    scheduleEnd: '18:00',
+    dayOff: 'Sunday',
   });
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
 
@@ -123,6 +140,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     phoneNumber: '',
     dateOfBirth: '',
     hireDate: '',
+    scheduleStart: '',
+    scheduleEnd: '',
+    dayOff: '',
   });
   const [editEmployeeLoading, setEditEmployeeLoading] = useState(false);
 
@@ -254,6 +274,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           salary: comp.salary.toString(),
           allowance: comp.allowance?.toString() || '',
           bonus: comp.bonus?.toString() || '',
+          loanDeduction: comp.loanDeduction?.toString() || '',
+          lateDeduction: comp.lateDeduction?.toString() || '',
+          leaveBalance: comp.leaveBalance?.toString() || '',
           currency: comp.currency,
         });
       } else {
@@ -261,6 +284,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           salary: '',
           allowance: '',
           bonus: '',
+          loanDeduction: '',
+          lateDeduction: '',
+          leaveBalance: '',
           currency: 'USD',
         });
       }
@@ -406,10 +432,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
       const allowParsed = parseOptionalMoney(compForm.allowance);
       const bonusParsed = parseOptionalMoney(compForm.bonus);
-      if (allowParsed === 'invalid' || bonusParsed === 'invalid') {
+      const loanDeductionParsed = parseOptionalMoney(compForm.loanDeduction);
+      const lateDeductionParsed = parseOptionalMoney(compForm.lateDeduction);
+      const leaveBalanceParsed = parseOptionalMoney(compForm.leaveBalance);
+      if (allowParsed === 'invalid' || bonusParsed === 'invalid' || loanDeductionParsed === 'invalid' || lateDeductionParsed === 'invalid' || leaveBalanceParsed === 'invalid') {
         toast({
           title: 'Invalid number',
-          description: 'Allowance and bonus must be blank or valid numbers.',
+          description: 'All compensation fields must be blank or valid numbers.',
           variant: 'destructive',
         });
         return;
@@ -426,6 +455,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           salary: newSalary,
           allowance: allowParsed,
           bonus: bonusParsed,
+          loanDeduction: loanDeductionParsed,
+          lateDeduction: lateDeductionParsed,
+          leaveBalance: leaveBalanceParsed,
           currency: compForm.currency,
         },
         employee.id
@@ -711,6 +743,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           phoneNumber: '',
           dateOfBirth: '',
           hireDate: new Date().toISOString().split('T')[0],
+          scheduleStart: '09:00',
+          scheduleEnd: '18:00',
+          dayOff: 'Sunday',
         });
 
         // Close dialog
@@ -749,6 +784,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       phoneNumber: selectedEmployee.phoneNumber || '',
       dateOfBirth: selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '',
       hireDate: selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '',
+      scheduleStart: selectedEmployee.scheduleStart || '',
+      scheduleEnd: selectedEmployee.scheduleEnd || '',
+      dayOff: selectedEmployee.dayOff || 'Sunday',
     });
     setEditEmployeeDialogOpen(true);
   }
@@ -788,6 +826,19 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         updates.hireDate = editEmployeeForm.hireDate;
       }
 
+      const curSchedStart = selectedEmployee.scheduleStart || '';
+      const curSchedEnd = selectedEmployee.scheduleEnd || '';
+      const curDayOff = selectedEmployee.dayOff || 'Sunday';
+      if (editEmployeeForm.scheduleStart !== curSchedStart) {
+        updates.scheduleStart = editEmployeeForm.scheduleStart ? editEmployeeForm.scheduleStart : null;
+      }
+      if (editEmployeeForm.scheduleEnd !== curSchedEnd) {
+        updates.scheduleEnd = editEmployeeForm.scheduleEnd ? editEmployeeForm.scheduleEnd : null;
+      }
+      if (editEmployeeForm.dayOff !== curDayOff) {
+        updates.dayOff = editEmployeeForm.dayOff ? editEmployeeForm.dayOff : null;
+      }
+
       if (Object.keys(updates).length === 0) {
         toast({
           title: 'No changes',
@@ -814,6 +865,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         if (updates.phoneNumber) updatedFields.push('Phone Number');
         if (updates.dateOfBirth) updatedFields.push('Date of Birth');
         if (updates.hireDate) updatedFields.push('Hire Date');
+        if (updates.scheduleStart !== undefined) updatedFields.push('Schedule start');
+        if (updates.scheduleEnd !== undefined) updatedFields.push('Schedule end');
+        if (updates.dayOff !== undefined) updatedFields.push('Day off');
 
         if (updatedFields.length > 0) {
           try {
@@ -1288,10 +1342,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button variant="outline" size="sm" onClick={openEditDialog}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Edit
-                      </Button>
                       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
                         <AlertDialogTrigger asChild>
                           <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50">
@@ -1338,6 +1388,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       </AlertDialog>
                         </>
                       )}
+                      <Button variant="outline" size="sm" onClick={openEditDialog}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1447,6 +1501,20 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <p className="text-sm text-muted-foreground">Hire Date</p>
                       <p className="font-medium">{formatDate(selectedEmployee.hireDate)}</p>
                     </div>
+                    {(selectedEmployee.scheduleStart || selectedEmployee.scheduleEnd) && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Working Hours</p>
+                        <p className="font-medium">
+                          {(selectedEmployee.scheduleStart || '—') + ' – ' + (selectedEmployee.scheduleEnd || '—')}
+                        </p>
+                      </div>
+                    )}
+                    {selectedEmployee.dayOff && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Day Off</p>
+                        <p className="font-medium">{selectedEmployee.dayOff}</p>
+                      </div>
+                    )}
                     {selectedEmployee.hireDate && (() => {
                       const tenure = calculateTenure(selectedEmployee.hireDate);
                       if (!tenure) return null;
@@ -1526,9 +1594,32 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       />
                     </div>
                   </div>
+                  {compensation && selectedEmployee && (() => {
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const m = now.getMonth();
+                    const salaryNum = parseFloat(compForm.salary) || compensation.salary || 0;
+                    const cur = compForm.currency || compensation.currency;
+                    const wd = workingDaysInMonth(y, m, selectedEmployee.dayOff);
+                    const spd = salaryPerDayForMonth(salaryNum, y, m, selectedEmployee.dayOff);
+                    return (
+                      <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                        <p className="font-medium">Payroll preview (this month)</p>
+                        <p>
+                          <span className="text-muted-foreground">Working days in month:</span>{' '}
+                          {wd} (excluding weekly {selectedEmployee.dayOff || 'Sunday'})
+                        </p>
+                        <p>
+                          <span className="text-muted-foreground">Salary per day:</span>{' '}
+                          <span className="font-semibold">{cur} {spd.toLocaleString()}</span>
+                          {' — '}clock-in after schedule start + 15 minutes counts as Late In
+                        </p>
+                      </div>
+                    );
+                  })()}
                   {!isAdmin && (
                     <p className="text-sm text-muted-foreground">
-                      Only administrators can edit compensation. Wages in exports are estimated from annual salary (÷ 2,080 hours).
+                      Only administrators can edit compensation. Pay uses monthly salary ÷ working days in the month (day-off excluded). Some exports may still include hour-based estimates.
                     </p>
                   )}
                   <Button onClick={handleSaveCompensation} disabled={!isAdmin}>
@@ -2355,6 +2446,46 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   onChange={(e) => setAddEmployeeForm({ ...addEmployeeForm, hireDate: e.target.value })}
                   required
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Only an administrator can choose a hire date in the past.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="newScheduleStart">Schedule start</Label>
+                <Input
+                  id="newScheduleStart"
+                  type="time"
+                  value={addEmployeeForm.scheduleStart}
+                  onChange={(e) => setAddEmployeeForm({ ...addEmployeeForm, scheduleStart: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="newScheduleEnd">Schedule end</Label>
+                <Input
+                  id="newScheduleEnd"
+                  type="time"
+                  value={addEmployeeForm.scheduleEnd}
+                  onChange={(e) => setAddEmployeeForm({ ...addEmployeeForm, scheduleEnd: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="newDayOff">Weekly day off</Label>
+                <Select
+                  value={addEmployeeForm.dayOff}
+                  onValueChange={(value) => setAddEmployeeForm({ ...addEmployeeForm, dayOff: value })}
+                >
+                  <SelectTrigger id="newDayOff">
+                    <SelectValue placeholder="Day off" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAY_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Date of Birth */}
@@ -2473,6 +2604,48 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   value={editEmployeeForm.hireDate}
                   onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, hireDate: e.target.value })}
                 />
+                {!isAdmin && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Past hire dates can only be set by an administrator.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="editScheduleStart">Schedule start</Label>
+                <Input
+                  id="editScheduleStart"
+                  type="time"
+                  value={editEmployeeForm.scheduleStart}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, scheduleStart: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="editScheduleEnd">Schedule end</Label>
+                <Input
+                  id="editScheduleEnd"
+                  type="time"
+                  value={editEmployeeForm.scheduleEnd}
+                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, scheduleEnd: e.target.value })}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="editDayOff">Weekly day off</Label>
+                <Select
+                  value={editEmployeeForm.dayOff || 'Sunday'}
+                  onValueChange={(value) => setEditEmployeeForm({ ...editEmployeeForm, dayOff: value })}
+                >
+                  <SelectTrigger id="editDayOff">
+                    <SelectValue placeholder="Day off" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAY_OPTIONS.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Date of Birth */}

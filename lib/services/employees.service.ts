@@ -10,6 +10,31 @@ import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
 import { resolveUserRole } from '@/lib/roles';
 import { sendWelcomeEmail } from './email.service';
 
+/** Hire date before local calendar today: only admins may set (blocks managers if update path is opened to them). */
+async function assertCanSetPastHireDate(
+  actorId: string,
+  hireDateStr: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const hire = new Date(hireDateStr);
+  if (isNaN(hire.getTime())) {
+    return { ok: false, error: 'Invalid hire date' };
+  }
+  const hireDay = new Date(hire.getFullYear(), hire.getMonth(), hire.getDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (hireDay.getTime() >= today.getTime()) return { ok: true };
+
+  const actor = await getEmployee(actorId);
+  if (!actor) return { ok: false, error: 'Unauthorized' };
+  if (actor.role !== 'admin') {
+    return {
+      ok: false,
+      error: 'Only an administrator can set a hire date in the past.',
+    };
+  }
+  return { ok: true };
+}
+
 function toISOString(value: unknown): string | undefined {
   if (!value) return undefined;
   try {
@@ -59,6 +84,9 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
       hireDate: toISOString(data?.hireDate),
       createdAt: toISOString(data?.createdAt),
       updatedAt: toISOString(data?.updatedAt),
+      scheduleStart: data?.scheduleStart,
+      scheduleEnd: data?.scheduleEnd,
+      dayOff: data?.dayOff,
       address: data?.address,
       city: data?.city,
       state: data?.state,
@@ -101,6 +129,9 @@ export async function getAllEmployees(
         hireDate: toISOString(data?.hireDate),
         createdAt: toISOString(data?.createdAt),
         updatedAt: toISOString(data?.updatedAt),
+        scheduleStart: data?.scheduleStart,
+        scheduleEnd: data?.scheduleEnd,
+        dayOff: data?.dayOff,
       } as Employee;
     });
   } catch (error: unknown) {
@@ -151,6 +182,9 @@ export async function createEmployee(
     phoneNumber?: string;
     dateOfBirth?: string;
     hireDate: string;
+    scheduleStart?: string;
+    scheduleEnd?: string;
+    dayOff?: string;
   },
   createdBy: string
 ): Promise<{ success: boolean; userId?: string; error?: string }> {
@@ -163,6 +197,11 @@ export async function createEmployee(
       if (err.code !== 'auth/user-not-found') {
         throw error;
       }
+    }
+
+    const hireGate = await assertCanSetPastHireDate(createdBy, data.hireDate);
+    if (!hireGate.ok) {
+      return { success: false, error: hireGate.error };
     }
 
     const userRecord = await adminAuth.createUser({
@@ -184,6 +223,9 @@ export async function createEmployee(
         ? Timestamp.fromDate(new Date(data.dateOfBirth))
         : null,
       hireDate: Timestamp.fromDate(new Date(data.hireDate)),
+      scheduleStart: data.scheduleStart || null,
+      scheduleEnd: data.scheduleEnd || null,
+      dayOff: data.dayOff || null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       createdBy,
@@ -250,13 +292,27 @@ export async function updateEmployee(
   updatedBy: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (updates.hireDate) {
+      const hireGate = await assertCanSetPastHireDate(updatedBy, updates.hireDate);
+      if (!hireGate.ok) {
+        return { success: false, error: hireGate.error };
+      }
+    }
+
     const processedUpdates: Record<string, unknown> = { ...updates };
+    delete processedUpdates.id;
 
     if (updates.dateOfBirth) {
       processedUpdates.dateOfBirth = Timestamp.fromDate(new Date(updates.dateOfBirth));
     }
     if (updates.hireDate) {
       processedUpdates.hireDate = Timestamp.fromDate(new Date(updates.hireDate));
+    }
+
+    for (const key of ['scheduleStart', 'scheduleEnd', 'dayOff'] as const) {
+      if (key in processedUpdates && processedUpdates[key] === '') {
+        processedUpdates[key] = null;
+      }
     }
 
     await adminDb.collection('employees').doc(employeeId).update({
@@ -346,6 +402,9 @@ export async function getCompensation(
       salary: Number(data.salary ?? 0),
       allowance: data.allowance != null ? Number(data.allowance) : undefined,
       bonus: data.bonus != null ? Number(data.bonus) : undefined,
+      loanDeduction: data.loanDeduction != null ? Number(data.loanDeduction) : undefined,
+      lateDeduction: data.lateDeduction != null ? Number(data.lateDeduction) : undefined,
+      leaveBalance: data.leaveBalance != null ? Number(data.leaveBalance) : undefined,
       currency: (data.currency as string) || 'USD',
       updatedAt:
         (data?.updatedAt as { toDate?: () => Date })?.toDate?.()?.toISOString() ||
@@ -367,6 +426,12 @@ export async function updateCompensation(
     allowance: number | null;
     /** `null` removes the field in Firestore (cleared inputs). */
     bonus: number | null;
+    /** `null` removes the field in Firestore (cleared inputs). */
+    loanDeduction?: number | null;
+    /** `null` removes the field in Firestore (cleared inputs). */
+    lateDeduction?: number | null;
+    /** `null` removes the field in Firestore (cleared inputs). */
+    leaveBalance?: number | null;
   },
   updatedBy: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -382,6 +447,15 @@ export async function updateCompensation(
     doc.allowance =
       compensation.allowance === null ? FieldValue.delete() : compensation.allowance;
     doc.bonus = compensation.bonus === null ? FieldValue.delete() : compensation.bonus;
+    doc.loanDeduction =
+      compensation.loanDeduction === null || compensation.loanDeduction === undefined
+        ? FieldValue.delete() : compensation.loanDeduction;
+    doc.lateDeduction =
+      compensation.lateDeduction === null || compensation.lateDeduction === undefined
+        ? FieldValue.delete() : compensation.lateDeduction;
+    doc.leaveBalance =
+      compensation.leaveBalance === null || compensation.leaveBalance === undefined
+        ? FieldValue.delete() : compensation.leaveBalance;
 
     await adminDb.collection('compensation').doc(employeeId).set(doc, { merge: true });
     return { success: true };

@@ -9,6 +9,7 @@ export function resolveAttendanceStatusLabel(record: AttendanceRecord): Attendan
     return record.status ?? 'Absent';
   }
   if (!record.clockOut) {
+    if (record.status === 'Late In') return 'Late In';
     return 'Partial';
   }
   return record.status ?? 'On Time';

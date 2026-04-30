@@ -46,6 +46,9 @@ export async function POST(request: NextRequest) {
         phoneNumber: body?.phoneNumber,
         dateOfBirth: body?.dateOfBirth,
         hireDate,
+        scheduleStart: body?.scheduleStart,
+        scheduleEnd: body?.scheduleEnd,
+        dayOff: body?.dayOff,
       },
       admin.employeeId
     );

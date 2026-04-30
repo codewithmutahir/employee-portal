@@ -25,6 +25,10 @@ export interface Employee {
   hireDate: string; // ISO date string
   createdAt: string; // ISO date string
   updatedAt: string; // ISO date string
+  // Schedule fields
+  scheduleStart?: string; // HH:mm format (e.g., "09:00")
+  scheduleEnd?: string;   // HH:mm format (e.g., "18:00")
+  dayOff?: string;        // Day of week (e.g., "Sunday", "Wednesday")
 }
 
 export interface Compensation {
@@ -32,9 +36,16 @@ export interface Compensation {
   salary: number;
   allowance?: number;
   bonus?: number;
+  loanDeduction?: number;
+  lateDeduction?: number;
+  leaveBalance?: number;
   currency: string;
   updatedAt: string; // ISO date string
   updatedBy: string; // User ID
+  /** Optional mirror of employee schedule for reporting; primary source is Employee. */
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  dayOff?: string;
 }
 
 export type AttendanceStatus = 'On Time' | 'Late In' | 'Absent' | 'Half Day';

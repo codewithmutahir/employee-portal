@@ -58,6 +58,9 @@ export async function exportEmployeeData(employeeId: string): Promise<{
         toISOString(empData?.dateOfBirth) || (empData?.dateOfBirth as string),
       hireDate:
         toISOString(empData?.hireDate) || (empData?.hireDate as string),
+      scheduleStart: empData?.scheduleStart as string | undefined,
+      scheduleEnd: empData?.scheduleEnd as string | undefined,
+      dayOff: empData?.dayOff as string | undefined,
       createdAt:
         toISOString(empData?.createdAt) || (empData?.createdAt as string),
       updatedAt:

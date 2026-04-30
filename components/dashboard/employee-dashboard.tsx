@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Employee, AttendanceRecord, Note } from "@/types";
+import { Employee, AttendanceRecord, Note, Compensation } from "@/types";
 import {
   Card,
   CardContent,
@@ -25,9 +25,12 @@ import {
   getEmployeeAttendanceStats,
   getEmployeeMonthlyStats,
 } from "@/app/actions/attendance";
+import { getCompensation } from "@/app/actions/employees";
 import { calculateTenure } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate, formatTime, isToday } from "@/lib/utils";
+import { salaryPerDayForMonth, workingDaysInMonth } from "@/lib/payroll-helpers";
+import { resolveAttendanceStatusLabel } from "@/lib/attendance-status";
 import { useAuth } from "@/components/auth-provider";
 import {
   Clock,
@@ -47,6 +50,8 @@ import {
   Settings,
   LayoutDashboard,
   AlertCircle,
+  DollarSign,
+  ClipboardList,
 } from "lucide-react";
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
@@ -96,6 +101,7 @@ export default function EmployeeDashboard({
   const [activeTab, setActiveTab] = useState<"dashboard" | "announcements" | "settings">("dashboard");
   const [issueForm, setIssueForm] = useState({ title: "", description: "", category: "other" as IssueCategory });
   const [issueSubmitting, setIssueSubmitting] = useState(false);
+  const [compensation, setCompensation] = useState<Compensation | null>(null);
   const { toast } = useToast();
 
   /** Employee's local date (YYYY-MM-DD) — uses browser local time so clock in/out work in all timezones. */
@@ -125,13 +131,14 @@ export default function EmployeeDashboard({
   async function loadData() {
     setLoading(true);
     try {
-      const [today, history, notesData, stats, monthly, descriptor] = await Promise.all([
-        getTodayAttendance(employee.id, getLocalDateString()),
-        getAttendanceHistory(employee.id, 10),
+      const [today, history, notesData, stats, monthly, descriptor, comp] = await Promise.all([
+        getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart),
+        getAttendanceHistory(employee.id, 50, employee.scheduleStart),
         getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
         getEmployeeAttendanceStats(employee.id, 30),
         getEmployeeMonthlyStats(employee.id, 6),
         getEmployeeFaceDescriptor(employee.id),
+        getCompensation(employee.id),
       ]);
 
       setTodayAttendance(today ? { ...today } : null); // Create mutable copy
@@ -140,6 +147,7 @@ export default function EmployeeDashboard({
       setAttendanceStats(stats);
       setMonthlyStats(monthly);
       setFaceDescriptor(descriptor);
+      setCompensation(comp);
       
     } catch (error) {
       console.error("Error loading employee data:", error);
@@ -500,6 +508,18 @@ export default function EmployeeDashboard({
               <p className="text-sm text-muted-foreground">Hire Date</p>
               <p className="font-medium">{formatDate(employee.hireDate)}</p>
             </div>
+            {employee.scheduleStart && employee.scheduleEnd && (
+              <div>
+                <p className="text-sm text-muted-foreground">Working Hours</p>
+                <p className="font-medium">{employee.scheduleStart} – {employee.scheduleEnd}</p>
+              </div>
+            )}
+            {employee.dayOff && (
+              <div>
+                <p className="text-sm text-muted-foreground">Day Off</p>
+                <p className="font-medium">{employee.dayOff}</p>
+              </div>
+            )}
             {employee.hireDate && (() => {
               const tenure = calculateTenure(employee.hireDate);
               if (!tenure) return null;
@@ -560,7 +580,7 @@ export default function EmployeeDashboard({
                 {todayAttendance.clockIn && (
                   <div>
                     <p className="text-sm text-muted-foreground">Clock In</p>
-                    <p className="font-medium">
+                    <p className={`font-medium ${todayAttendance.status === "Late In" ? "text-red-600" : ""}`}>
                       {formatTime(todayAttendance.clockIn)}
                     </p>
                   </div>
@@ -570,6 +590,16 @@ export default function EmployeeDashboard({
                     <p className="text-sm text-muted-foreground">Clock Out</p>
                     <p className="font-medium">
                       {formatTime(todayAttendance.clockOut)}
+                    </p>
+                  </div>
+                )}
+                {todayAttendance.clockIn && todayAttendance.status && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Status</p>
+                    <p className={`font-medium ${todayAttendance.status === "Late In" ? "text-red-600" : ""}`}>
+                      {resolveAttendanceStatusLabel(todayAttendance) === "Partial"
+                        ? "In progress"
+                        : todayAttendance.status}
                     </p>
                   </div>
                 )}
@@ -700,6 +730,113 @@ export default function EmployeeDashboard({
           )}
         </CardContent>
       </Card>
+
+      {/* Salary Slip */}
+      {compensation && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Salary Slip
+            </CardTitle>
+            <CardDescription>
+              {(() => {
+                const now = new Date();
+                return now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+              })()}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(() => {
+              const now = new Date();
+              const year = now.getFullYear();
+              const month = now.getMonth();
+              const dayOff = employee.dayOff || 'Sunday';
+              const workingDays = workingDaysInMonth(year, month, dayOff);
+              const salaryPerDay = salaryPerDayForMonth(compensation.salary, year, month, dayOff);
+              const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+              const latesCount = attendanceHistory.filter(
+                (r) => r.date.startsWith(monthPrefix) && r.status === 'Late In'
+              ).length;
+
+              const leavesDeduction = 0;
+              const lateDeduction = compensation.lateDeduction || 0;
+              const loanDeduction = compensation.loanDeduction || 0;
+              const allowances = compensation.allowance || 0;
+              const bonus = compensation.bonus || 0;
+
+              const netSalary = compensation.salary - leavesDeduction - lateDeduction - loanDeduction + allowances + bonus;
+
+              return (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Employee Name</td>
+                        <td className="px-4 py-2 font-semibold">{employee.displayName}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Leave Balance</td>
+                        <td className="px-4 py-2">{compensation.leaveBalance ?? '-'}</td>
+                      </tr>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Day Off</td>
+                        <td className="px-4 py-2">{dayOff}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Working Days in Month</td>
+                        <td className="px-4 py-2">{workingDays}</td>
+                      </tr>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Salary</td>
+                        <td className="px-4 py-2 font-semibold">{compensation.currency} {compensation.salary.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Salary Per Day</td>
+                        <td className="px-4 py-2 font-semibold">{compensation.currency} {salaryPerDay.toLocaleString()}</td>
+                      </tr>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Leaves Deduction</td>
+                        <td className="px-4 py-2">{leavesDeduction > 0 ? `${compensation.currency} ${leavesDeduction.toLocaleString()}` : '-'}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Lates</td>
+                        <td className={`px-4 py-2 ${latesCount > 0 ? 'text-red-600 font-semibold' : ''}`}>{latesCount > 0 ? latesCount : '-'}</td>
+                      </tr>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Late Deduction</td>
+                        <td className={`px-4 py-2 ${lateDeduction > 0 ? 'text-red-600 font-semibold' : ''}`}>{lateDeduction > 0 ? `${compensation.currency} ${lateDeduction.toLocaleString()}` : '-'}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Loan Deduction</td>
+                        <td className={`px-4 py-2 ${loanDeduction > 0 ? 'text-red-600 font-semibold' : ''}`}>{loanDeduction > 0 ? `${compensation.currency} ${loanDeduction.toLocaleString()}` : '-'}</td>
+                      </tr>
+                      <tr className="border-b bg-muted/30">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Allowances</td>
+                        <td className="px-4 py-2">{allowances > 0 ? `${compensation.currency} ${allowances.toLocaleString()}` : '-'}</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-4 py-2 font-medium text-muted-foreground">Bonus</td>
+                        <td className="px-4 py-2">{bonus > 0 ? `${compensation.currency} ${bonus.toLocaleString()}` : '-'}</td>
+                      </tr>
+                      <tr className="bg-primary/10">
+                        <td className="px-4 py-3 font-bold">Net Salary</td>
+                        <td className="px-4 py-3 font-bold text-lg">{compensation.currency} {Math.round(netSalary).toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div className="px-4 py-3 bg-muted/20 border-t text-xs text-muted-foreground space-y-1">
+                    <p>Salary per day: {compensation.currency} {compensation.salary.toLocaleString()} ÷ {workingDays} working days = {compensation.currency} {salaryPerDay.toLocaleString()} per day (after weekly day off).</p>
+                    <p>Lateness: clock-in more than 15 minutes after scheduled start ({employee.scheduleStart || 'your set start'}) counts as Late In.</p>
+                    <p className="pt-2 border-t border-muted/50">Prepared by: —</p>
+                    <p>Reviewed by: —</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Report an issue */}
       <Card>

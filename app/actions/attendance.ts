@@ -14,11 +14,11 @@ export async function startBreak(employeeId: string, dateOverride?: string) {
 export async function endBreak(employeeId: string, dateOverride?: string) {
   return attendanceService.endBreak(employeeId, dateOverride);
 }
-export async function getTodayAttendance(employeeId: string, dateOverride?: string) {
-  return attendanceService.getTodayAttendance(employeeId, dateOverride);
+export async function getTodayAttendance(employeeId: string, dateOverride?: string, scheduleStart?: string) {
+  return attendanceService.getTodayAttendance(employeeId, dateOverride, scheduleStart);
 }
-export async function getAttendanceHistory(employeeId: string, limit?: number) {
-  return attendanceService.getAttendanceHistory(employeeId, limit);
+export async function getAttendanceHistory(employeeId: string, limit?: number, scheduleStart?: string) {
+  return attendanceService.getAttendanceHistory(employeeId, limit, scheduleStart);
 }
 export async function getEmployeeAttendanceStats(employeeId: string, days?: number) {
   return attendanceService.getEmployeeAttendanceStats(employeeId, days);
