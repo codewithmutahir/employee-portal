@@ -385,22 +385,47 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       return;
     }
     try {
-      // Store old values for comparison
-      const oldSalary = compensation?.salary || 0;
-      const oldAllowance = compensation?.allowance || 0;
-      const oldBonus = compensation?.bonus || 0;
-      const currency = compForm.currency;
+      const salaryTrim = compForm.salary.trim();
+      const newSalary = salaryTrim === '' ? 0 : parseFloat(salaryTrim);
+      if (!Number.isFinite(newSalary) || newSalary < 0) {
+        toast({
+          title: 'Invalid salary',
+          description: 'Enter a valid non‑negative number for salary.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-      const newSalary = parseFloat(compForm.salary) || 0;
-      const newAllowance = compForm.allowance ? parseFloat(compForm.allowance) : 0;
-      const newBonus = compForm.bonus ? parseFloat(compForm.bonus) : 0;
+      const parseOptionalMoney = (raw: string): number | null | 'invalid' => {
+        const t = raw.trim();
+        if (t === '') return null;
+        const n = parseFloat(t);
+        if (!Number.isFinite(n)) return 'invalid';
+        return n;
+      };
+
+      const allowParsed = parseOptionalMoney(compForm.allowance);
+      const bonusParsed = parseOptionalMoney(compForm.bonus);
+      if (allowParsed === 'invalid' || bonusParsed === 'invalid') {
+        toast({
+          title: 'Invalid number',
+          description: 'Allowance and bonus must be blank or valid numbers.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const oldSalary = compensation?.salary ?? 0;
+      const oldAllowance = compensation?.allowance ?? null;
+      const oldBonus = compensation?.bonus ?? null;
+      const currency = compForm.currency;
 
       const result = await updateCompensation(
         selectedEmployee.id,
         {
           salary: newSalary,
-          allowance: newAllowance || undefined,
-          bonus: newBonus || undefined,
+          allowance: allowParsed,
+          bonus: bonusParsed,
           currency: compForm.currency,
         },
         employee.id
@@ -419,11 +444,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         if (oldSalary !== newSalary) {
           changes.salary = { old: oldSalary, new: newSalary };
         }
-        if (oldAllowance !== newAllowance) {
-          changes.allowance = { old: oldAllowance, new: newAllowance };
+        if (oldAllowance !== allowParsed && !(oldAllowance == null && allowParsed == null)) {
+          changes.allowance = { old: oldAllowance ?? 0, new: allowParsed ?? 0 };
         }
-        if (oldBonus !== newBonus) {
-          changes.bonus = { old: oldBonus, new: newBonus };
+        if (oldBonus !== bonusParsed && !(oldBonus == null && bonusParsed == null)) {
+          changes.bonus = { old: oldBonus ?? 0, new: bonusParsed ?? 0 };
         }
 
         // Send email if there are changes

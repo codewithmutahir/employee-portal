@@ -360,23 +360,30 @@ export async function getCompensation(
 
 export async function updateCompensation(
   employeeId: string,
-  compensation: Partial<Compensation>,
+  compensation: {
+    salary: number;
+    currency: string;
+    /** `null` removes the field in Firestore (cleared inputs). */
+    allowance: number | null;
+    /** `null` removes the field in Firestore (cleared inputs). */
+    bonus: number | null;
+  },
   updatedBy: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await adminDb
-      .collection('compensation')
-      .doc(employeeId)
-      .set(
-        {
-          ...compensation,
-          employeeId,
-          hourlyRate: FieldValue.delete(),
-          updatedAt: FieldValue.serverTimestamp(),
-          updatedBy,
-        },
-        { merge: true }
-      );
+    const doc: Record<string, unknown> = {
+      employeeId,
+      salary: compensation.salary,
+      currency: compensation.currency,
+      hourlyRate: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy,
+    };
+    doc.allowance =
+      compensation.allowance === null ? FieldValue.delete() : compensation.allowance;
+    doc.bonus = compensation.bonus === null ? FieldValue.delete() : compensation.bonus;
+
+    await adminDb.collection('compensation').doc(employeeId).set(doc, { merge: true });
     return { success: true };
   } catch (error: unknown) {
     const err = error as Error;
