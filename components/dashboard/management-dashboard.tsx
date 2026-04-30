@@ -31,6 +31,7 @@ interface ManagementDashboardProps {
 }
 
 export default function ManagementDashboard({ employee }: ManagementDashboardProps) {
+  const isAdmin = employee.role === 'admin';
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [compensation, setCompensation] = useState<Compensation | null>(null);
@@ -82,7 +83,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     allowance: '',
     bonus: '',
     currency: 'USD',
-    hourlyRate: '',
   });
 
   // Attendance edit form state (kept intentionally lightweight)
@@ -104,7 +104,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     email: '',
     password: '',
     displayName: '',
-    role: 'employee' as 'employee' | 'management',
+    role: 'employee' as 'employee' | 'management' | 'admin',
     department: '',
     position: '',
     phoneNumber: '',
@@ -255,7 +255,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           allowance: comp.allowance?.toString() || '',
           bonus: comp.bonus?.toString() || '',
           currency: comp.currency,
-          hourlyRate: comp.hourlyRate?.toString() || '',
+        });
+      } else {
+        setCompForm({
+          salary: '',
+          allowance: '',
+          bonus: '',
+          currency: 'USD',
         });
       }
     } catch (error: any) {
@@ -370,6 +376,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function handleSaveCompensation() {
     if (!selectedEmployee) return;
+    if (!isAdmin) {
+      toast({
+        title: 'Permission denied',
+        description: 'Only administrators can update compensation.',
+        variant: 'destructive',
+      });
+      return;
+    }
     try {
       // Store old values for comparison
       const oldSalary = compensation?.salary || 0;
@@ -388,7 +402,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           allowance: newAllowance || undefined,
           bonus: newBonus || undefined,
           currency: compForm.currency,
-          hourlyRate: compForm.hourlyRate ? parseFloat(compForm.hourlyRate) : undefined,
         },
         employee.id
       );
@@ -529,6 +542,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function handleStatusChange(newStatus: 'active' | 'terminated') {
     if (!selectedEmployee) return;
+    if (!isAdmin) {
+      toast({
+        title: 'Permission denied',
+        description: 'Only administrators can change employment status.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     try {
       const result = await updateEmployee(selectedEmployee.id, { status: newStatus }, employee.id);
@@ -856,14 +877,20 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       <div className="flex justify-between items-start flex-wrap">
         <div>
           <h2 className="text-3xl font-bold">Management Dashboard</h2>
-          <p className="text-muted-foreground">Manage employees, attendance, and compensation</p>
+          <p className="text-muted-foreground">
+            {isAdmin
+              ? 'Manage employees, attendance, and compensation'
+              : 'View roster, attendance, reports, and announcements. Account and payroll changes require an administrator.'}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap mt-2">
+          {isAdmin && (
           <Button onClick={() => setAddEmployeeDialogOpen(true)} variant="default">
             <Plus className="mr-2 h-4 w-4" />
             Add Employee
           </Button>
-          <ExportDialog />
+          )}
+          {isAdmin && <ExportDialog requestedByEmployeeId={employee.id} />}
         </div>
       </div>
 
@@ -1200,6 +1227,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <CardDescription>{selectedEmployee.email}</CardDescription>
                     </div>
                     <div className="flex gap-2 flex-wrap">
+                      {isAdmin && (
+                        <>
                       <AlertDialog open={resendCredentialsDialogOpen} onOpenChange={setResendCredentialsDialogOpen}>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -1234,19 +1263,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSendEmployeeEmail}
-                        disabled={sendingEmployeeEmail || resendCredentialsLoading}
-                      >
-                        {sendingEmployeeEmail ? (
-                          <LoadingSpinner label="Sending" size="sm" />
-                        ) : (
-                          <Send className="mr-2 h-4 w-4" />
-                        )}
-                        Send notification
-                      </Button>
                       <Button variant="outline" size="sm" onClick={openEditDialog}>
                         <Pencil className="mr-2 h-4 w-4" />
                         Edit
@@ -1295,7 +1311,26 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <ExportDialog employeeId={selectedEmployee.id} employeeName={selectedEmployee.displayName} />
+                        </>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSendEmployeeEmail}
+                        disabled={sendingEmployeeEmail || resendCredentialsLoading}
+                      >
+                        {sendingEmployeeEmail ? (
+                          <LoadingSpinner label="Sending" size="sm" />
+                        ) : (
+                          <Send className="mr-2 h-4 w-4" />
+                        )}
+                        Send notification
+                      </Button>
+                      <ExportDialog
+                        employeeId={selectedEmployee.id}
+                        employeeName={selectedEmployee.displayName}
+                        requestedByEmployeeId={employee.id}
+                      />
                     </div>
                   </div>
                 </CardHeader>
@@ -1320,6 +1355,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-green-700">Active</span>
                             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            {isAdmin && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50">
@@ -1345,11 +1381,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
+                            )}
                           </div>
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-red-700">Terminated</span>
                             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                            {isAdmin && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="outline" size="sm" className="text-green-600 hover:text-green-700 hover:bg-green-50">
@@ -1375,6 +1413,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1429,6 +1468,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         type="number"
                         value={compForm.salary}
                         onChange={(e) => setCompForm({ ...compForm, salary: e.target.value })}
+                        disabled={!isAdmin}
                       />
                     </div>
                     <div>
@@ -1437,6 +1477,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         id="currency"
                         value={compForm.currency}
                         onChange={(e) => setCompForm({ ...compForm, currency: e.target.value })}
+                        disabled={!isAdmin}
                       />
                     </div>
                     <div>
@@ -1446,6 +1487,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         type="number"
                         value={compForm.allowance}
                         onChange={(e) => setCompForm({ ...compForm, allowance: e.target.value })}
+                        disabled={!isAdmin}
                       />
                     </div>
                     <div>
@@ -1455,22 +1497,18 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         type="number"
                         value={compForm.bonus}
                         onChange={(e) => setCompForm({ ...compForm, bonus: e.target.value })}
+                        disabled={!isAdmin}
                       />
-                    </div>
-                    <div>
-                      <Label htmlFor="hourlyRate">Hourly Rate</Label>
-                      <Input
-                        id="hourlyRate"
-                        type="number"
-                        step="0.01"
-                        value={compForm.hourlyRate}
-                        onChange={(e) => setCompForm({ ...compForm, hourlyRate: e.target.value })}
-                        placeholder="e.g., 25.00"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">Used for timecard wage calculations</p>
                     </div>
                   </div>
-                  <Button onClick={handleSaveCompensation}>Save Compensation</Button>
+                  {!isAdmin && (
+                    <p className="text-sm text-muted-foreground">
+                      Only administrators can edit compensation. Wages in exports are estimated from annual salary (÷ 2,080 hours).
+                    </p>
+                  )}
+                  <Button onClick={handleSaveCompensation} disabled={!isAdmin}>
+                    Save Compensation
+                  </Button>
                 </CardContent>
               </Card>
 
@@ -2227,7 +2265,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 <Label htmlFor="newRole">Role *</Label>
                 <Select
                   value={addEmployeeForm.role}
-                  onValueChange={(value: 'employee' | 'management') =>
+                  onValueChange={(value: 'employee' | 'management' | 'admin') =>
                     setAddEmployeeForm({ ...addEmployeeForm, role: value })
                   }
                 >
@@ -2237,6 +2275,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   <SelectContent>
                     <SelectItem value="employee">Employee</SelectItem>
                     <SelectItem value="management">Management</SelectItem>
+                    <SelectItem value="admin">Administrator</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff } from '@/lib/api/auth';
+import { isStaffRole } from '@/lib/roles';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonForbidden, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
@@ -9,7 +10,7 @@ export async function GET(request: NextRequest) {
   if (!auth) return jsonUnauthorized();
 
   const employeeId = request.nextUrl.searchParams.get('employeeId') ?? auth.employeeId;
-  if (employeeId !== auth.employeeId && auth.role !== 'management') {
+  if (employeeId !== auth.employeeId && !requireStaff(auth)) {
     return jsonForbidden('Can only view own notes');
   }
 
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
     const data = await notesService.getNotes(
       employeeId,
       auth.employeeId,
-      auth.role === 'management'
+      isStaffRole(auth.role)
     );
     return jsonSuccess(data);
   } catch (err) {
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest) {
 /** POST /api/notes – add note (management only). Body: { employeeId, content, isInternal? }. */
 export async function POST(request: NextRequest) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const staff = requireStaff(auth);
+  if (!staff) return jsonUnauthorized();
 
   try {
     const body = await request.json();
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
     const result = await notesService.addNote(
       employeeId,
       content,
-      auth.employeeId,
+      staff.employeeId,
       isInternal
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to add note', 400);

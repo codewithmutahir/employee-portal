@@ -38,6 +38,15 @@ function safeFormatTime(dateValue: string | Date | null | undefined, options?: I
   }
 }
 
+/** Derive hourly equivalent from recorded annual salary (2080 hrs/year). */
+export function hourlyRateFromAnnualSalary(compensation: Compensation | null): number | undefined {
+  if (!compensation) return undefined;
+  const raw = compensation.salary;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(((n / (52 * 40)) + Number.EPSILON) * 100) / 100;
+}
+
 export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   const { employee, compensation, attendance } = data;
   
@@ -80,6 +89,13 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
     if (compensation.bonus !== undefined && compensation.bonus !== null) {
       output += `Bonuses: ${compensation.bonus.toLocaleString()}\n`;
     }
+
+    const implied = hourlyRateFromAnnualSalary(compensation);
+    if (implied !== undefined) {
+      output += `Implied hourly (annual salary ÷ 2,080): ${compensation.currency || 'USD'} ${implied.toFixed(
+        2
+      )}\n`;
+    }
     
     // Only show if we have at least one compensation field
     if (!compensation.salary && !compensation.allowance && !compensation.bonus) {
@@ -98,6 +114,19 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   output += `Total Days Recorded: ${totalDays}\n`;
   output += `Total Hours Worked: ${totalHours.toFixed(2)}\n`;
   output += `Average Hours/Day: ${avgHours}\n`;
+  const impliedHr = hourlyRateFromAnnualSalary(compensation);
+  if (impliedHr !== undefined && totalHours > 0) {
+    let regAgg = 0;
+    let otAgg = 0;
+    attendance.forEach((record) => {
+      const unpaid = calculateUnpaidBreaks(record.breaks || []);
+      const paid = calculateTotalPaidHours(record.totalHours || 0, unpaid);
+      regAgg += calculateRegularHours(paid);
+      otAgg += calculateOTHours(paid);
+    });
+    const est = calculateEstimatedWages(regAgg, otAgg, impliedHr);
+    output += `Estimated gross (implied hourly × hours incl. OT ×1.5): ${compensation?.currency ?? 'USD'} ${est.toFixed(2)}\n`;
+  }
   output += '\n';
   
   // Recent Attendance Records (Last 30 days)
@@ -173,14 +202,20 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
   csv += '\n';
   
   // Combined Employee & Attendance Data
-  csv += 'Employee Name,Email,Department,Position,Status,Hire Date,Total Days,Total Hours,Average Hours\n';
+  csv += 'Employee Name,Email,Department,Position,Status,Hire Date,Annual Salary,Currency,Implied Hourly Rate,Total Days in Export,Total Hours,Average Hours/Day\n';
   
-  data.forEach(employeeData => {
-    const { employee, attendance } = employeeData;
+  data.forEach((employeeData) => {
+    const { employee, compensation, attendance } = employeeData;
     
     const totalDays = attendance.length;
     const totalHours = attendance.reduce((sum, record) => sum + (record.totalHours || 0), 0);
     const avgHours = totalDays > 0 ? (totalHours / totalDays).toFixed(2) : '0.00';
+    const implied = hourlyRateFromAnnualSalary(compensation);
+    const sal = compensation?.salary;
+    const salStr =
+      compensation != null && sal !== undefined && sal !== null && Number(sal) !== 0
+        ? String(compensation.salary)
+        : '';
     
     csv += `"${employee.displayName || 'N/A'}",`;
     csv += `"${employee.email || 'N/A'}",`;
@@ -188,6 +223,9 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
     csv += `"${employee.position || 'N/A'}",`;
     csv += `"${employee.status || 'N/A'}",`;
     csv += `"${safeFormatDate(employee.hireDate)}",`;
+    csv += `${salStr},`;
+    csv += `"${compensation?.currency || ''}",`;
+    csv += `${implied !== undefined ? implied.toFixed(2) : ''},`;
     csv += `${totalDays},`;
     csv += `${totalHours.toFixed(2)},`;
     csv += `${avgHours}\n`;
@@ -222,11 +260,16 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
  */
 export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): string {
   const { employee, compensation, attendance } = data;
-  
-  // Get hourly rate (use hourlyRate if available, otherwise calculate from salary assuming 40h/week)
-  const hourlyRate = compensation?.hourlyRate || 
-    (compensation?.salary ? compensation.salary / (40 * 52) : undefined);
-  
+
+  const hourlyRate = hourlyRateFromAnnualSalary(compensation);
+
+  // Sort attendance by date
+  const sortedAttendance = [...attendance].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+
+  const periodHours = sortedAttendance.reduce((sum, r) => sum + (r.totalHours || 0), 0);
+
   // CSV Header
   const headers = [
     'Name',
@@ -252,14 +295,13 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     'Manager note'
   ];
   
-  let csv = headers.join(',') + '\n';
-  
-  // Sort attendance by date
-  const sortedAttendance = [...attendance].sort((a, b) => 
-    new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
-  
-  // Process each attendance record
+  let csv = '';
+  const cur = compensation?.currency || 'USD';
+  const salaryLabel =
+    compensation != null && Number(compensation.salary) > 0 ? String(compensation.salary) : 'N/A';
+  const empties = (n: number) => Array.from({ length: n }, () => '""').join(',');
+  csv += `"PAY SUMMARY","Annual salary (${cur}) ${salaryLabel}","Implied hourly (${hourlyRate !== undefined ? `${hourlyRate.toFixed(2)}` : 'N/A'})","Period hours this export (${periodHours.toFixed(2)})",${empties(17)}\n`;
+  csv += headers.join(',') + '\n';
   sortedAttendance.forEach((record) => {
     // Format dates with safe formatting
     const clockInDateStr = safeFormatDate(record.clockIn, { year: 'numeric', month: 'long', day: 'numeric' });
@@ -286,8 +328,8 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     const otHours = calculateOTHours(totalPaidHours);
     const estimatedWages = calculateEstimatedWages(regularHours, otHours, hourlyRate);
     
-    // Format wage rate
-    const wageRateStr = hourlyRate ? `$${hourlyRate.toFixed(2)}` : '$0.00';
+    const wageRateStr =
+      hourlyRate !== undefined ? `${cur} ${hourlyRate.toFixed(2)}/hr` : 'N/A (add salary in compensation)';
     
     // Build row
     const row = [

@@ -4,37 +4,43 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { exportEmployeeData, exportAllEmployeesData } from '@/app/actions/export';
-import { formatEmployeeDataForPrint, formatEmployeeDataAsCSV, formatAllEmployeesDataAsCSV, formatEmployeeDataAsTimecardCSV, formatAllEmployeesDataAsTimecardCSV } from '@/lib/export-utils';
+import {
+  formatEmployeeDataForPrint,
+  formatEmployeeDataAsCSV,
+  formatAllEmployeesDataAsCSV,
+  formatEmployeeDataAsTimecardCSV,
+  formatAllEmployeesDataAsTimecardCSV,
+} from '@/lib/export-utils';
 import { useToast } from '@/components/ui/use-toast';
 import { Download, Printer, FileText, FileSpreadsheet } from 'lucide-react';
 
 interface ExportDialogProps {
   employeeId?: string;
   employeeName?: string;
+  requestedByEmployeeId?: string;
 }
 
-export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
+export function ExportDialog({ employeeId, employeeName, requestedByEmployeeId }: ExportDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
   async function handleExportSingle(format: 'txt' | 'csv' = 'txt') {
-    if (!employeeId) {
+    if (!employeeId || !requestedByEmployeeId) {
       toast({
         title: 'Error',
-        description: 'No employee ID provided',
+        description: 'Missing employee or session',
         variant: 'destructive',
       });
       return;
     }
-    
+
     setLoading(true);
     try {
-      const data = await exportEmployeeData(employeeId);
-      
+      const data = await exportEmployeeData(employeeId, requestedByEmployeeId);
+
       if (!data) {
         throw new Error('No data returned from server');
       }
-
 
       let formatted: string;
       let filename: string;
@@ -50,7 +56,6 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
         mimeType = 'text/plain';
       }
 
-
       const blob = new Blob([formatted], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -61,9 +66,9 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      toast({ 
+      toast({
         title: 'Export successful',
-        description: `${filename} has been downloaded`
+        description: `${filename} has been downloaded`,
       });
     } catch (error: any) {
       toast({
@@ -77,15 +82,19 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
   }
 
   async function handleExportAll(format: 'txt' | 'csv' = 'txt') {
+    if (!requestedByEmployeeId) {
+      toast({ title: 'Error', description: 'Missing session', variant: 'destructive' });
+      return;
+    }
+
     setLoading(true);
     try {
-      const data = await exportAllEmployeesData();
-      
+      const data = await exportAllEmployeesData(requestedByEmployeeId);
+
       if (!data || data.length === 0) {
         throw new Error('No data available or no employees found');
       }
 
-      
       let formatted: string;
       let filename: string;
       let mimeType: string;
@@ -104,7 +113,6 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
         mimeType = 'text/plain';
       }
 
-
       const blob = new Blob([formatted], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -115,9 +123,9 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      toast({ 
+      toast({
         title: 'Export successful',
-        description: `Exported data for ${data.length} employees`
+        description: `Exported data for ${data.length} employees`,
       });
     } catch (error: any) {
       toast({
@@ -131,26 +139,26 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
   }
 
   async function handlePrintSingle() {
-    if (!employeeId) {
+    if (!employeeId || !requestedByEmployeeId) {
       toast({
         title: 'Error',
-        description: 'No employee ID provided',
+        description: 'Missing employee or session',
         variant: 'destructive',
       });
       return;
     }
-    
+
     setLoading(true);
     try {
-      const data = await exportEmployeeData(employeeId);
-      
+      const data = await exportEmployeeData(employeeId, requestedByEmployeeId);
+
       if (!data) {
         throw new Error('Failed to load data');
       }
 
       const formatted = formatEmployeeDataForPrint(data);
       const printWindow = window.open('', '_blank');
-      
+
       if (printWindow) {
         printWindow.document.write(`
           <html>
@@ -173,8 +181,7 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
           </html>
         `);
         printWindow.document.close();
-        
-        // Give browser time to render before printing
+
         setTimeout(() => {
           printWindow.print();
         }, 250);
@@ -197,29 +204,14 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
   if (employeeId) {
     return (
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleExportSingle('txt')}
-          disabled={loading}
-        >
-          {loading ? <LoadingSpinner label="Exporting" /> : (<><FileText className="mr-2 h-4 w-4" />Export TXT</>)}
+        <Button variant="outline" size="sm" onClick={() => handleExportSingle('txt')} disabled={loading}>
+          {loading ? <LoadingSpinner label="Exporting" /> : <><FileText className="mr-2 h-4 w-4" />Export TXT</>}
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleExportSingle('csv')}
-          disabled={loading}
-        >
-          {loading ? <LoadingSpinner label="Exporting" /> : (<><FileSpreadsheet className="mr-2 h-4 w-4" />Export CSV</>)}
+        <Button variant="outline" size="sm" onClick={() => handleExportSingle('csv')} disabled={loading}>
+          {loading ? <LoadingSpinner label="Exporting" /> : <><FileSpreadsheet className="mr-2 h-4 w-4" />Export CSV</>}
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlePrintSingle}
-          disabled={loading}
-        >
-          {loading ? <LoadingSpinner label="Preparing" /> : (<><Printer className="mr-2 h-4 w-4" />Print</>)}
+        <Button variant="outline" size="sm" onClick={handlePrintSingle} disabled={loading}>
+          {loading ? <LoadingSpinner label="Preparing" /> : <><Printer className="mr-2 h-4 w-4" />Print</>}
         </Button>
       </div>
     );
@@ -227,21 +219,11 @@ export function ExportDialog({ employeeId, employeeName }: ExportDialogProps) {
 
   return (
     <div className="flex gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => handleExportAll('txt')}
-        disabled={loading}
-      >
-        {loading ? <LoadingSpinner label="Exporting" /> : (<><FileText className="mr-2 h-4 w-4" />Export All TXT</>)}
+      <Button variant="outline" size="sm" onClick={() => handleExportAll('txt')} disabled={loading}>
+        {loading ? <LoadingSpinner label="Exporting" /> : <><FileText className="mr-2 h-4 w-4" />Export All TXT</>}
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => handleExportAll('csv')}
-        disabled={loading}
-      >
-        {loading ? <LoadingSpinner label="Exporting" /> : (<><FileSpreadsheet className="mr-2 h-4 w-4" />Export All CSV</>)}
+      <Button variant="outline" size="sm" onClick={() => handleExportAll('csv')} disabled={loading}>
+        {loading ? <LoadingSpinner label="Exporting" /> : <><FileSpreadsheet className="mr-2 h-4 w-4" />Export All CSV</>}
       </Button>
     </div>
   );

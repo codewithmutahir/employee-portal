@@ -1,7 +1,7 @@
 'use server';
 
+import type { UserRole } from '@/types';
 import * as announcementsService from '@/lib/services/announcements.service';
-
 export async function createAnnouncement(
   data: Parameters<typeof announcementsService.createAnnouncement>[0],
   createdBy: string,
@@ -17,7 +17,7 @@ export async function createAnnouncement(
 }
 export async function getAnnouncementsForUser(
   userId: string,
-  userRole: 'employee' | 'management',
+  userRole: UserRole,
   userDepartment?: string
 ) {
   return announcementsService.getAnnouncementsForUser(
@@ -54,7 +54,7 @@ export async function getAnnouncementStats(announcementId: string) {
 }
 export async function getUnreadAnnouncementCount(
   userId: string,
-  userRole: 'employee' | 'management',
+  userRole: UserRole,
   userDepartment?: string
 ) {
   return announcementsService.getUnreadAnnouncementCount(

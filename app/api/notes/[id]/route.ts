@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as notesService from '@/lib/services/notes.service';
 
@@ -9,7 +9,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  if (!requireStaff(auth)) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Note id required');
@@ -34,7 +34,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  if (!requireStaff(auth)) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Note id required');

@@ -136,7 +136,7 @@ function DashboardContent() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
-          {employee.role === 'management' ? (
+          {employee.role === 'management' || employee.role === 'admin' ? (
             <ManagementDashboard employee={employee} />
           ) : (
             <EmployeeDashboard employee={employee} />

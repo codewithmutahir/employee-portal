@@ -5,7 +5,7 @@
 
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { Announcement, AnnouncementPriority, AnnouncementTarget } from '@/types';
+import { Announcement, AnnouncementPriority, AnnouncementTarget, UserRole } from '@/types';
 import { sendAnnouncementEmail } from './email.service';
 
 type ExpoPushTicket =
@@ -339,7 +339,7 @@ export async function createAnnouncement(
 
 export async function getAnnouncementsForUser(
   userId: string,
-  userRole: 'employee' | 'management',
+  userRole: UserRole,
   userDepartment?: string
 ): Promise<Announcement[]> {
   try {
@@ -367,7 +367,10 @@ export async function getAnnouncementsForUser(
         announcements.push(announcement);
       } else if (target === 'employees' && userRole === 'employee') {
         announcements.push(announcement);
-      } else if (target === 'management' && userRole === 'management') {
+      } else if (
+        target === 'management' &&
+        (userRole === 'management' || userRole === 'admin')
+      ) {
         announcements.push(announcement);
       } else if (
         target === 'department' &&
@@ -503,7 +506,7 @@ export async function getAnnouncementStats(announcementId: string): Promise<{
 
 export async function getUnreadAnnouncementCount(
   userId: string,
-  userRole: 'employee' | 'management',
+  userRole: UserRole,
   userDepartment?: string
 ): Promise<number> {
   try {

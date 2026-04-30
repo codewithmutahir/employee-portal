@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff, requireAdmin } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as employeesService from '@/lib/services/employees.service';
 
-/** GET /api/employees – list employees (management only). Query: excludeManagement=true. */
+/** GET /api/employees – list employees (staff). Query: excludeManagement=true. */
 export async function GET(request: NextRequest) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  if (!requireStaff(auth)) return jsonUnauthorized();
 
   const excludeManagement = request.nextUrl.searchParams.get('excludeManagement') !== 'false';
 
@@ -19,10 +19,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST /api/employees – create employee (management only). Body: { email, password, displayName, role, department?, position?, phoneNumber?, dateOfBirth?, hireDate }. */
+/** POST /api/employees – create employee (admin only). Body: { email, password, displayName, role, department?, position?, phoneNumber?, dateOfBirth?, hireDate }. */
 export async function POST(request: NextRequest) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const admin = requireAdmin(auth);
+  if (!admin) return jsonUnauthorized();
 
   try {
     const body = await request.json();
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
         dateOfBirth: body?.dateOfBirth,
         hireDate,
       },
-      auth.employeeId
+      admin.employeeId
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to create employee', 400);
     return jsonSuccess({ userId: result.userId });

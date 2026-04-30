@@ -3,6 +3,7 @@ import { signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
 import { db } from './firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
 import { Employee } from '@/types';
+import { resolveUserRole } from '@/lib/roles';
 
 export async function login(email: string, password: string): Promise<User> {
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
@@ -50,10 +51,12 @@ export async function getEmployeeData(userId: string): Promise<Employee | null> 
       const data = employeeDoc.data();
       // Handle missing timestamp fields gracefully
       const now = new Date().toISOString();
+      const storedRole = (data.role as Employee['role']) || 'employee';
       const employee = { 
         id: employeeDoc.id, 
         // Spread all fields first
         ...data,
+        role: resolveUserRole(employeeDoc.id, storedRole),
         // Then convert date fields
         dateOfBirth: toISOString(data.dateOfBirth),
         hireDate: toISOString(data.hireDate),
@@ -75,6 +78,11 @@ export async function getEmployeeData(userId: string): Promise<Employee | null> 
 
 export async function isManagement(userId: string): Promise<boolean> {
   const employee = await getEmployeeData(userId);
-  return employee?.role === 'management';
+  return employee?.role === 'management' || employee?.role === 'admin';
+}
+
+export async function isAdmin(userId: string): Promise<boolean> {
+  const employee = await getEmployeeData(userId);
+  return employee?.role === 'admin';
 }
 

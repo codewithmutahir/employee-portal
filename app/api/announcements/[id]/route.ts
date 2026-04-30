@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as announcementsService from '@/lib/services/announcements.service';
 
@@ -9,7 +9,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const staff = requireStaff(auth);
+  if (!staff) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Announcement id required');
@@ -19,7 +20,7 @@ export async function PATCH(
     const result = await announcementsService.updateAnnouncement(
       id,
       body,
-      auth.employeeId
+      staff.employeeId
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to update', 400);
     return jsonSuccess({});
@@ -35,7 +36,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  if (!requireStaff(auth)) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Announcement id required');

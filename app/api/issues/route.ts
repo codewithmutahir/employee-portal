@@ -1,12 +1,12 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as issuesService from '@/lib/services/issues.service';
 
 /** GET /api/issues – list all issues (management only). */
 export async function GET(request: NextRequest) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  if (!requireStaff(auth)) return jsonUnauthorized();
 
   try {
     const data = await issuesService.getIssues();

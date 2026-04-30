@@ -6,12 +6,13 @@
 import { NextRequest } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { getEmployee } from '@/lib/services/employees.service';
+import { isAdminRole } from '@/lib/roles';
 
 export interface AuthResult {
   employeeId: string;
   email: string;
   displayName: string;
-  role: 'employee' | 'management';
+  role: 'employee' | 'management' | 'admin';
   department?: string;
 }
 
@@ -43,7 +44,19 @@ export async function verifyAuth(request: NextRequest): Promise<AuthResult | nul
   }
 }
 
-/** Require management role; returns null if not management. */
-export function requireManagement(auth: AuthResult): AuthResult | null {
-  return auth.role === 'management' ? auth : null;
+/** Management or administrator (elevated dashboard). */
+export function requireStaff(auth: AuthResult | null): AuthResult | null {
+  if (!auth) return null;
+  return auth.role === 'management' || auth.role === 'admin' ? auth : null;
+}
+
+/** Administrator only — full privileged operations (HR / account control). */
+export function requireAdmin(auth: AuthResult | null): AuthResult | null {
+  if (!auth) return null;
+  return isAdminRole(auth.role) ? auth : null;
+}
+
+/** @deprecated Use requireStaff */
+export function requireManagement(auth: AuthResult | null): AuthResult | null {
+  return requireStaff(auth);
 }

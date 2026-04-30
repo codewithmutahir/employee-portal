@@ -64,16 +64,17 @@ export async function exportEmployeeData(employeeId: string): Promise<{
         toISOString(empData?.updatedAt) || (empData?.updatedAt as string),
     };
 
+    const cd = compensationDoc.data();
     const compensation = compensationDoc.exists
       ? ({
           employeeId: compensationDoc.id,
-          salary: compensationDoc.data()?.salary,
-          allowance: compensationDoc.data()?.allowance,
-          bonus: compensationDoc.data()?.bonus,
-          currency: (compensationDoc.data()?.currency as string) || 'USD',
-          hourlyRate: compensationDoc.data()?.hourlyRate,
-          updatedAt: toISOString(compensationDoc.data()?.updatedAt),
-          updatedBy: compensationDoc.data()?.updatedBy,
+          salary: Number(cd?.salary ?? 0),
+          allowance:
+            cd?.allowance !== undefined && cd?.allowance !== null ? Number(cd.allowance) : undefined,
+          bonus: cd?.bonus !== undefined && cd?.bonus !== null ? Number(cd.bonus) : undefined,
+          currency: (cd?.currency as string) || 'USD',
+          updatedAt: toISOString(cd?.updatedAt),
+          updatedBy: cd?.updatedBy as string | undefined,
         } as Compensation)
       : null;
 

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff, requireAdmin } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError } from '@/lib/api/response';
 import * as employeesService from '@/lib/services/employees.service';
 
@@ -14,7 +14,7 @@ export async function GET(
   const { id } = await params;
   if (!id) return jsonError('Employee id required');
 
-  if (id !== auth.employeeId && auth.role !== 'management') {
+  if (id !== auth.employeeId && !requireStaff(auth)) {
     return jsonError('Forbidden', 403);
   }
 
@@ -28,20 +28,21 @@ export async function GET(
   }
 }
 
-/** PATCH /api/employees/:id – update employee (management only). */
+/** PATCH /api/employees/:id – update employee (admin only). */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const admin = requireAdmin(auth);
+  if (!admin) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Employee id required');
 
   try {
     const body = await request.json().catch(() => ({}));
-    const result = await employeesService.updateEmployee(id, body, auth.employeeId);
+    const result = await employeesService.updateEmployee(id, body, admin.employeeId);
     if (!result.success) return jsonError(result.error ?? 'Failed to update employee', 400);
     return jsonSuccess({});
   } catch (err) {
@@ -56,7 +57,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const admin = requireAdmin(auth);
+  if (!admin) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Employee id required');
@@ -64,7 +66,7 @@ export async function DELETE(
   try {
     const body = await request.json().catch(() => ({}));
     const deleteAuthUser = body?.deleteAuthUser !== false;
-    const result = await employeesService.deleteEmployee(id, auth.employeeId, deleteAuthUser);
+    const result = await employeesService.deleteEmployee(id, admin.employeeId, deleteAuthUser);
     if (!result.success) return jsonError(result.error ?? 'Failed to delete employee', 400);
     return jsonSuccess({});
   } catch (err) {

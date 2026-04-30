@@ -128,7 +128,7 @@ export default function EmployeeDashboard({
       const [today, history, notesData, stats, monthly, descriptor] = await Promise.all([
         getTodayAttendance(employee.id, getLocalDateString()),
         getAttendanceHistory(employee.id, 10),
-        getNotes(employee.id, employee.id, employee.role === "management"), // Updated signature
+        getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
         getEmployeeAttendanceStats(employee.id, 30),
         getEmployeeMonthlyStats(employee.id, 6),
         getEmployeeFaceDescriptor(employee.id),
@@ -802,7 +802,7 @@ export default function EmployeeDashboard({
               // If we need more notes from the server, fetch them
               if (newLimit > notes.length) {
                 try {
-                  const moreNotes = await getNotes(employee.id, employee.id, employee.role === "management");
+                  const moreNotes = await getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin");
                   setNotes(moreNotes);
                 } catch (error) {
                   toast({

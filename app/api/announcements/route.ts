@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { verifyAuth } from '@/lib/api/auth';
+import { verifyAuth, requireStaff } from '@/lib/api/auth';
 import { jsonSuccess, jsonError, jsonUnauthorized, jsonServerError, reportApiException } from '@/lib/api/response';
 import * as announcementsService from '@/lib/services/announcements.service';
 
@@ -22,10 +22,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST /api/announcements – create announcement (management only). Body: { title, content, priority, target, targetDepartment?, expiresAt?, isPinned?, sendEmail? }. */
+/** POST /api/announcements – create announcement (staff). Body: { title, content, priority, target, targetDepartment?, expiresAt?, isPinned?, sendEmail? }. */
 export async function POST(request: NextRequest) {
   const auth = await verifyAuth(request);
-  if (!auth || auth.role !== 'management') return jsonUnauthorized();
+  const staff = requireStaff(auth);
+  if (!staff) return jsonUnauthorized();
 
   try {
     const body = await request.json();
@@ -46,8 +47,8 @@ export async function POST(request: NextRequest) {
         expiresAt: body?.expiresAt,
         isPinned: body?.isPinned,
       },
-      auth.employeeId,
-      auth.displayName,
+      staff.employeeId,
+      staff.displayName,
       body?.sendEmail !== false
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to create announcement', 400);

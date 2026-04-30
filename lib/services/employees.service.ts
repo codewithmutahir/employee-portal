@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
+import { resolveUserRole } from '@/lib/roles';
 import { sendWelcomeEmail } from './email.service';
 
 function toISOString(value: unknown): string | undefined {
@@ -44,11 +45,12 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
     const doc = await adminDb.collection('employees').doc(employeeId).get();
     if (!doc.exists) return null;
     const data = doc.data();
+    const storedRole = (data?.role as Employee['role']) || 'employee';
     return {
       id: doc.id,
       email: (data?.email as string) || '',
       displayName: (data?.displayName as string) || '',
-      role: (data?.role as Employee['role']) || 'employee',
+      role: resolveUserRole(doc.id, storedRole),
       status: (data?.status as Employee['status']) || 'active',
       department: data?.department,
       position: data?.position,
@@ -85,11 +87,12 @@ export async function getAllEmployees(
     const snapshot = await query.get();
     return snapshot.docs.map((doc) => {
       const data = doc.data();
+      const storedRole = (data?.role as Employee['role']) || 'employee';
       return {
         id: doc.id,
         email: (data?.email as string) || '',
         displayName: (data?.displayName as string) || '',
-        role: (data?.role as Employee['role']) || 'employee',
+        role: resolveUserRole(doc.id, storedRole),
         status: (data?.status as Employee['status']) || 'active',
         department: data?.department,
         position: data?.position,
@@ -110,16 +113,17 @@ export async function getManagementUsers(): Promise<Employee[]> {
   try {
     const snapshot = await adminDb
       .collection('employees')
-      .where('role', '==', 'management')
+      .where('role', 'in', ['management', 'admin'])
       .get();
 
     return snapshot.docs.map((doc) => {
       const data = doc.data();
+      const storedRole = (data?.role as Employee['role']) || 'employee';
       return {
         id: doc.id,
         email: (data?.email as string) || '',
         displayName: (data?.displayName as string) || '',
-        role: 'management' as const,
+        role: resolveUserRole(doc.id, storedRole),
         status: (data?.status as Employee['status']) || 'active',
         department: data?.department,
         position: data?.position,
@@ -141,7 +145,7 @@ export async function createEmployee(
     email: string;
     password: string;
     displayName: string;
-    role: 'employee' | 'management';
+    role: 'employee' | 'management' | 'admin';
     department?: string;
     position?: string;
     phoneNumber?: string;
@@ -336,12 +340,17 @@ export async function getCompensation(
     const doc = await adminDb.collection('compensation').doc(employeeId).get();
     if (!doc.exists) return null;
     const data = doc.data();
+    if (!data) return null;
     return {
       employeeId: doc.id,
-      ...data,
+      salary: Number(data.salary ?? 0),
+      allowance: data.allowance != null ? Number(data.allowance) : undefined,
+      bonus: data.bonus != null ? Number(data.bonus) : undefined,
+      currency: (data.currency as string) || 'USD',
       updatedAt:
         (data?.updatedAt as { toDate?: () => Date })?.toDate?.()?.toISOString() ||
         (data?.updatedAt as string),
+      updatedBy: (data.updatedBy as string) || '',
     } as Compensation;
   } catch (error: unknown) {
     console.error('Get compensation error:', error);
@@ -362,6 +371,7 @@ export async function updateCompensation(
         {
           ...compensation,
           employeeId,
+          hourlyRate: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy,
         },

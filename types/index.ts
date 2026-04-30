@@ -1,4 +1,4 @@
-export type UserRole = 'employee' | 'management';
+export type UserRole = 'employee' | 'management' | 'admin';
 
 export type EmployeeStatus = 'active' | 'terminated';
 
@@ -35,7 +35,6 @@ export interface Compensation {
   currency: string;
   updatedAt: string; // ISO date string
   updatedBy: string; // User ID
-  hourlyRate?: number; // Hourly wage rate for timecard calculations
 }
 
 export type AttendanceStatus = 'On Time' | 'Late In' | 'Absent' | 'Half Day';
