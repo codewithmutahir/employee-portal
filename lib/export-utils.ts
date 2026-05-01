@@ -1,4 +1,5 @@
 import { Employee, AttendanceRecord, Compensation } from '@/types';
+import { DEFAULT_CURRENCY } from '@/lib/constants';
 import {
   calculateRegularHours,
   calculateOTHours,
@@ -92,7 +93,7 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
 
     const implied = hourlyRateFromAnnualSalary(compensation);
     if (implied !== undefined) {
-      output += `Implied hourly (annual salary ÷ 2,080): ${compensation.currency || 'USD'} ${implied.toFixed(
+      output += `Implied hourly (annual salary ÷ 2,080): ${compensation.currency || DEFAULT_CURRENCY} ${implied.toFixed(
         2
       )}\n`;
     }
@@ -125,7 +126,7 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
       otAgg += calculateOTHours(paid);
     });
     const est = calculateEstimatedWages(regAgg, otAgg, impliedHr);
-    output += `Estimated gross (implied hourly × hours incl. OT ×1.5): ${compensation?.currency ?? 'USD'} ${est.toFixed(2)}\n`;
+    output += `Estimated gross (implied hourly × hours incl. OT ×1.5): ${compensation?.currency ?? DEFAULT_CURRENCY} ${est.toFixed(2)}\n`;
   }
   output += '\n';
   
@@ -296,7 +297,7 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   ];
   
   let csv = '';
-  const cur = compensation?.currency || 'USD';
+  const cur = compensation?.currency || DEFAULT_CURRENCY;
   const salaryLabel =
     compensation != null && Number(compensation.salary) > 0 ? String(compensation.salary) : 'N/A';
   const empties = (n: number) => Array.from({ length: n }, () => '""').join(',');

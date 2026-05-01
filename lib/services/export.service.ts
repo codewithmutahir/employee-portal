@@ -5,6 +5,7 @@
 
 import { adminDb } from '@/lib/firebase/admin';
 import { Employee, AttendanceRecord, Compensation } from '@/types';
+import { DEFAULT_CURRENCY } from '@/lib/constants';
 
 function toISOString(value: unknown): string | undefined {
   if (!value) return undefined;
@@ -75,7 +76,7 @@ export async function exportEmployeeData(employeeId: string): Promise<{
           allowance:
             cd?.allowance !== undefined && cd?.allowance !== null ? Number(cd.allowance) : undefined,
           bonus: cd?.bonus !== undefined && cd?.bonus !== null ? Number(cd.bonus) : undefined,
-          currency: (cd?.currency as string) || 'USD',
+          currency: (cd?.currency as string) || DEFAULT_CURRENCY,
           updatedAt: toISOString(cd?.updatedAt),
           updatedBy: cd?.updatedBy as string | undefined,
         } as Compensation)

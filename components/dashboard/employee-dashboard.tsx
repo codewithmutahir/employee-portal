@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Employee, AttendanceRecord, Note, Compensation } from "@/types";
+import { Employee, AttendanceRecord, Note, Compensation, LeaveRequest, LeaveRequestKind } from "@/types";
 import {
   Card,
   CardContent,
@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   clockIn,
   clockOut,
@@ -56,6 +58,7 @@ import {
 import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
 import { preloadFaceModels } from "@/lib/face-models";
+import { createMyLeaveRequest, getMyLeaveRequests } from "@/app/actions/leaves";
 import { createIssue } from "@/app/actions/issues";
 import type { IssueCategory } from "@/types";
 import AttendanceHistory from "./attendance-history";
@@ -102,6 +105,13 @@ export default function EmployeeDashboard({
   const [issueForm, setIssueForm] = useState({ title: "", description: "", category: "other" as IssueCategory });
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const [compensation, setCompensation] = useState<Compensation | null>(null);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [leaveForm, setLeaveForm] = useState(() => {
+    const d = new Date();
+    const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return { startDate: s, endDate: s, kind: "monthly" as LeaveRequestKind, reason: "" };
+  });
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const { toast } = useToast();
 
   /** Employee's local date (YYYY-MM-DD) — uses browser local time so clock in/out work in all timezones. */
@@ -131,7 +141,12 @@ export default function EmployeeDashboard({
   async function loadData() {
     setLoading(true);
     try {
-      const [today, history, notesData, stats, monthly, descriptor, comp] = await Promise.all([
+      const leavePromise =
+        employee.role === "employee"
+          ? getMyLeaveRequests(employee.id, employee.id)
+          : Promise.resolve([] as LeaveRequest[]);
+
+      const [today, history, notesData, stats, monthly, descriptor, comp, leaves] = await Promise.all([
         getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart),
         getAttendanceHistory(employee.id, 50, employee.scheduleStart),
         getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
@@ -139,6 +154,7 @@ export default function EmployeeDashboard({
         getEmployeeMonthlyStats(employee.id, 6),
         getEmployeeFaceDescriptor(employee.id),
         getCompensation(employee.id),
+        leavePromise,
       ]);
 
       setTodayAttendance(today ? { ...today } : null); // Create mutable copy
@@ -148,6 +164,7 @@ export default function EmployeeDashboard({
       setMonthlyStats(monthly);
       setFaceDescriptor(descriptor);
       setCompensation(comp);
+      setLeaveRequests(leaves);
       
     } catch (error) {
       console.error("Error loading employee data:", error);
@@ -295,6 +312,41 @@ export default function EmployeeDashboard({
       toast({ title: "Error", description: e?.message || "Failed to report issue", variant: "destructive" });
     } finally {
       setIssueSubmitting(false);
+    }
+  }
+
+  async function handleSubmitLeaveRequest() {
+    if (employee.role !== "employee") return;
+    if (!leaveForm.startDate || !leaveForm.endDate) {
+      toast({ title: "Dates required", variant: "destructive" });
+      return;
+    }
+    setLeaveSubmitting(true);
+    try {
+      const result = await createMyLeaveRequest(
+        employee.id,
+        {
+          startDate: leaveForm.startDate,
+          endDate: leaveForm.endDate,
+          kind: leaveForm.kind,
+          reason: leaveForm.reason.trim() || undefined,
+        },
+        employee.id
+      );
+      if (result.success) {
+        toast({ title: "Leave request submitted", description: "Management or admin will review it." });
+        const d = new Date();
+        const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        setLeaveForm({ startDate: s, endDate: s, kind: "monthly", reason: "" });
+        const list = await getMyLeaveRequests(employee.id, employee.id);
+        setLeaveRequests(list);
+      } else {
+        toast({ title: "Could not submit", description: result.error, variant: "destructive" });
+      }
+    } catch (e: unknown) {
+      toast({ title: "Error", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setLeaveSubmitting(false);
     }
   }
 
@@ -834,6 +886,98 @@ export default function EmployeeDashboard({
                 </div>
               );
             })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {employee.role === "employee" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Request leave
+            </CardTitle>
+            <CardDescription>
+              <strong>Monthly</strong> leave uses your accrued balance (often 12 days/year, 1 per month — your balance appears on the salary slip). <strong>Emergency</strong> is for urgent situations. A manager or administrator must approve your request.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="leave-start">From</Label>
+                <Input
+                  id="leave-start"
+                  type="date"
+                  value={leaveForm.startDate}
+                  onChange={(e) => setLeaveForm((f) => ({ ...f, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="leave-end">To</Label>
+                <Input
+                  id="leave-end"
+                  type="date"
+                  value={leaveForm.endDate}
+                  onChange={(e) => setLeaveForm((f) => ({ ...f, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Leave type</Label>
+              <Select
+                value={leaveForm.kind}
+                onValueChange={(v) => setLeaveForm((f) => ({ ...f, kind: v as LeaveRequestKind }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly accrued leave</SelectItem>
+                  <SelectItem value="emergency">Emergency leave</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="leave-reason">Reason (optional)</Label>
+              <Textarea
+                id="leave-reason"
+                rows={2}
+                value={leaveForm.reason}
+                onChange={(e) => setLeaveForm((f) => ({ ...f, reason: e.target.value }))}
+                placeholder="Brief reason for your absence"
+              />
+            </div>
+            <Button onClick={handleSubmitLeaveRequest} disabled={leaveSubmitting}>
+              {leaveSubmitting ? <LoadingSpinner label="Submitting" /> : "Submit leave request"}
+            </Button>
+
+            {leaveRequests.length > 0 && (
+              <div className="space-y-2 border-t pt-4">
+                <p className="text-sm font-medium">Your requests</p>
+                <ul className="space-y-2 text-sm">
+                  {leaveRequests.map((r) => (
+                    <li key={r.id} className="flex flex-col gap-1 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        {r.startDate} → {r.endDate} · {r.kind}
+                        {r.source === "absence_default_emergency" ? " · unplanned" : ""}
+                      </span>
+                      <Badge
+                        variant={
+                          r.status === "approved"
+                            ? "default"
+                            : r.status === "rejected"
+                              ? "destructive"
+                              : "secondary"
+                        }
+                        className="w-fit capitalize"
+                      >
+                        {r.status}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

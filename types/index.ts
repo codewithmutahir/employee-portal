@@ -48,6 +48,28 @@ export interface Compensation {
   dayOff?: string;
 }
 
+export type LeaveRequestKind = 'monthly' | 'emergency';
+export type LeaveRequestStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveRequestSource = 'employee' | 'absence_default_emergency';
+
+/** Leave / absence workflow (Firestore `leaveRequests`). */
+export interface LeaveRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  kind: LeaveRequestKind;
+  reason?: string;
+  status: LeaveRequestStatus;
+  source: LeaveRequestSource;
+  createdAt: string;
+  updatedAt: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  adminNote?: string;
+}
+
 export type AttendanceStatus = 'On Time' | 'Late In' | 'Absent' | 'Half Day';
 
 export interface AttendanceRecord {

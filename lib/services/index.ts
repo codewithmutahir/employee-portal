@@ -14,3 +14,4 @@ export * from './issues.service';
 export * from './employees.service';
 export * from './face.service';
 export * from './export.service';
+export * from './leave-requests.service';

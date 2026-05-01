@@ -8,6 +8,7 @@ import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
 import { resolveUserRole } from '@/lib/roles';
+import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { sendWelcomeEmail } from './email.service';
 
 /** Hire date before local calendar today: only admins may set (blocks managers if update path is opened to them). */
@@ -405,7 +406,7 @@ export async function getCompensation(
       loanDeduction: data.loanDeduction != null ? Number(data.loanDeduction) : undefined,
       lateDeduction: data.lateDeduction != null ? Number(data.lateDeduction) : undefined,
       leaveBalance: data.leaveBalance != null ? Number(data.leaveBalance) : undefined,
-      currency: (data.currency as string) || 'USD',
+      currency: (data.currency as string) || DEFAULT_CURRENCY,
       updatedAt:
         (data?.updatedAt as { toDate?: () => Date })?.toDate?.()?.toISOString() ||
         (data?.updatedAt as string),
@@ -462,6 +463,74 @@ export async function updateCompensation(
   } catch (error: unknown) {
     const err = error as Error;
     console.error('Update compensation error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/** Set leave balance only (days). Creates a minimal compensation doc if missing. Management + admin. */
+export async function updateLeaveBalanceOnly(
+  employeeId: string,
+  leaveBalance: number | null,
+  updatedBy: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const ref = adminDb.collection('compensation').doc(employeeId);
+    const snap = await ref.get();
+    const merge: Record<string, unknown> = {
+      employeeId,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy,
+    };
+    if (leaveBalance === null) {
+      merge.leaveBalance = FieldValue.delete();
+    } else {
+      merge.leaveBalance = leaveBalance;
+    }
+    if (!snap.exists) {
+      merge.salary = 0;
+      merge.currency = DEFAULT_CURRENCY;
+    }
+    await ref.set(merge, { merge: true });
+    return { success: true };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('updateLeaveBalanceOnly error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/** Add delta (negative to deduct) to leave balance; result floored at 0. */
+export async function patchLeaveBalanceDelta(
+  employeeId: string,
+  deltaDays: number,
+  updatedBy: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const ref = adminDb.collection('compensation').doc(employeeId);
+      const snap = await tx.get(ref);
+      let cur = 0;
+      if (snap.exists) {
+        const v = snap.data()?.leaveBalance;
+        if (v != null && v !== '') cur = Number(v);
+      }
+      const next = Math.max(0, cur + deltaDays);
+      const merge: Record<string, unknown> = {
+        leaveBalance: next,
+        updatedAt: FieldValue.serverTimestamp(),
+        updatedBy,
+      };
+      if (!snap.exists) {
+        merge.employeeId = employeeId;
+        merge.salary = 0;
+        merge.currency = DEFAULT_CURRENCY;
+      }
+      tx.set(ref, merge, { merge: true });
+    });
+    return { success: true };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('patchLeaveBalanceDelta error:', err);
     return { success: false, error: err.message };
   }
 }

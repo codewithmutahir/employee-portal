@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Employee, AttendanceRecord, Compensation, Note, Issue, IssueStatus } from '@/types';
+import { Employee, AttendanceRecord, Compensation, Note, Issue, IssueStatus, LeaveRequest, LeaveRequestKind } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import type { WorkAnniversary } from '@/types';
-import { getAllEmployees, getCompensation, updateCompensation, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, resendCredentials } from '@/app/actions/employees';
+import { getAllEmployees, getCompensation, updateCompensation, updateLeaveBalance, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, resendCredentials } from '@/app/actions/employees';
+import { getPendingLeaveRequestsForStaff, staffDecideLeaveRequest, staffCreateUnplannedLeave } from '@/app/actions/leaves';
 import { sendWelcomeEmail, sendNotificationEmail, sendTerminationEmail, sendReactivationEmail, sendCompensationUpdateEmail, sendProfileUpdateEmail } from '@/app/actions/email';
 import { calculateTenure } from '@/lib/utils';
 import { getAttendanceByDate, updateAttendance } from '@/app/actions/attendance-management';
@@ -21,7 +22,8 @@ import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
 import { workingDaysInMonth, salaryPerDayForMonth } from '@/lib/payroll-helpers';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle } from 'lucide-react';
+import { DEFAULT_CURRENCY } from '@/lib/constants';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle, ClipboardList } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
@@ -40,6 +42,17 @@ const WEEKDAY_OPTIONS = [
   'Friday',
   'Saturday',
 ] as const;
+
+/** Quick shift templates; times are HH:mm (local) for lateness vs schedule start. */
+const SHIFT_PRESETS: { id: string; label: string; start: string; end: string }[] = [
+  { id: 'custom', label: 'Custom — set fields below', start: '', end: '' },
+  { id: 'office-9-6', label: 'Office · 09:00 – 18:00', start: '09:00', end: '18:00' },
+  { id: 'early-8-5', label: 'Early · 08:00 – 17:00', start: '08:00', end: '17:00' },
+  { id: 'late-10-7', label: 'Late start · 10:00 – 19:00', start: '10:00', end: '19:00' },
+  { id: 'half-9-2', label: 'Half day · 09:00 – 14:00', start: '09:00', end: '14:00' },
+  { id: 'evening-14-22', label: 'Evening · 14:00 – 22:00', start: '14:00', end: '22:00' },
+  { id: 'overnight-22-6', label: 'Overnight · 22:00 – 06:00', start: '22:00', end: '06:00' },
+];
 
 export default function ManagementDashboard({ employee }: ManagementDashboardProps) {
   const isAdmin = employee.role === 'admin';
@@ -96,7 +109,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     loanDeduction: '',
     lateDeduction: '',
     leaveBalance: '',
-    currency: 'USD',
+    currency: DEFAULT_CURRENCY,
   });
 
   // Attendance edit form state (kept intentionally lightweight)
@@ -140,11 +153,21 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     phoneNumber: '',
     dateOfBirth: '',
     hireDate: '',
-    scheduleStart: '',
-    scheduleEnd: '',
-    dayOff: '',
   });
   const [editEmployeeLoading, setEditEmployeeLoading] = useState(false);
+
+  const [scheduleDraft, setScheduleDraft] = useState({
+    scheduleStart: '',
+    scheduleEnd: '',
+    dayOff: 'Sunday',
+  });
+  const [schedulePreset, setSchedulePreset] = useState<string>('custom');
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  const [pendingLeaves, setPendingLeaves] = useState<LeaveRequest[]>([]);
+  const [leavesLoading, setLeavesLoading] = useState(false);
+  const [leaveBalanceSaving, setLeaveBalanceSaving] = useState(false);
+  const [unplannedLeave, setUnplannedLeave] = useState({ startDate: '', endDate: '', reason: '' });
 
   // Delete Employee state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -277,7 +300,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           loanDeduction: comp.loanDeduction?.toString() || '',
           lateDeduction: comp.lateDeduction?.toString() || '',
           leaveBalance: comp.leaveBalance?.toString() || '',
-          currency: comp.currency,
+          currency: comp.currency || DEFAULT_CURRENCY,
         });
       } else {
         setCompForm({
@@ -287,7 +310,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           loanDeduction: '',
           lateDeduction: '',
           leaveBalance: '',
-          currency: 'USD',
+          currency: DEFAULT_CURRENCY,
         });
       }
     } catch (error: any) {
@@ -307,8 +330,21 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     loadAnniversaries();
     loadManagementReports();
     loadIssues();
+    void loadPendingLeaves();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
+
+  async function loadPendingLeaves() {
+    setLeavesLoading(true);
+    try {
+      const list = await getPendingLeaveRequestsForStaff(employee.id);
+      setPendingLeaves(list);
+    } catch {
+      setPendingLeaves([]);
+    } finally {
+      setLeavesLoading(false);
+    }
+  }
 
   async function loadIssues() {
     setIssuesLoading(true);
@@ -364,6 +400,23 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       loadEmployeeDetails();
     }
   }, [selectedEmployee, loadEmployeeDetails]);
+
+  useEffect(() => {
+    if (!selectedEmployee) return;
+    setScheduleDraft({
+      scheduleStart: selectedEmployee.scheduleStart || '',
+      scheduleEnd: selectedEmployee.scheduleEnd || '',
+      dayOff: selectedEmployee.dayOff || 'Sunday',
+    });
+    setSchedulePreset('custom');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset draft when this employee or their saved schedule fields change
+  }, [selectedEmployee?.id, selectedEmployee?.scheduleStart, selectedEmployee?.scheduleEnd, selectedEmployee?.dayOff]);
+
+  useEffect(() => {
+    if (!selectedEmployee) return;
+    const d = new Date().toISOString().split('T')[0];
+    setUnplannedLeave({ startDate: d, endDate: d, reason: '' });
+  }, [selectedEmployee?.id]);
 
   /** Load attendance for a given date. Pass date when calling from date picker so the selected date is used (state may not have updated yet). */
   async function loadAttendance(dateToLoad?: string) {
@@ -514,6 +567,81 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         description: 'Failed to update compensation',
         variant: 'destructive',
       });
+    }
+  }
+
+  async function handleSaveLeaveBalance() {
+    if (!selectedEmployee) return;
+    const raw = compForm.leaveBalance.trim();
+    const parsed = raw === '' ? null : parseFloat(raw);
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 0)) {
+      toast({
+        title: 'Invalid value',
+        description: 'Leave balance must be blank or a non‑negative number.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setLeaveBalanceSaving(true);
+    try {
+      const result = await updateLeaveBalance(selectedEmployee.id, parsed, employee.id);
+      if (result.success) {
+        toast({ title: 'Leave balance saved' });
+        await loadEmployeeDetails();
+      } else {
+        toast({ title: 'Save failed', description: result.error, variant: 'destructive' });
+      }
+    } catch (e: unknown) {
+      toast({
+        title: 'Error',
+        description: (e as Error).message || 'Failed to save leave balance',
+        variant: 'destructive',
+      });
+    } finally {
+      setLeaveBalanceSaving(false);
+    }
+  }
+
+  async function handleApproveLeave(requestId: string, kind: LeaveRequestKind) {
+    const result = await staffDecideLeaveRequest(requestId, 'approved', employee.id, { kindOverride: kind });
+    if (result.success) {
+      toast({ title: 'Leave approved', description: kind === 'monthly' ? 'Monthly leave: days deducted from leave balance.' : 'Emergency leave: balance unchanged.' });
+      await loadPendingLeaves();
+    } else {
+      toast({ title: 'Could not approve', description: result.error, variant: 'destructive' });
+    }
+  }
+
+  async function handleRejectLeave(requestId: string) {
+    const result = await staffDecideLeaveRequest(requestId, 'rejected', employee.id);
+    if (result.success) {
+      toast({ title: 'Leave rejected' });
+      await loadPendingLeaves();
+    } else {
+      toast({ title: 'Could not reject', description: result.error, variant: 'destructive' });
+    }
+  }
+
+  async function handleSubmitUnplannedLeave() {
+    if (!selectedEmployee) return;
+    if (!unplannedLeave.startDate || !unplannedLeave.endDate) {
+      toast({ title: 'Dates required', variant: 'destructive' });
+      return;
+    }
+    const result = await staffCreateUnplannedLeave(
+      selectedEmployee.id,
+      {
+        startDate: unplannedLeave.startDate,
+        endDate: unplannedLeave.endDate,
+        reason: unplannedLeave.reason.trim() || undefined,
+      },
+      employee.id
+    );
+    if (result.success) {
+      toast({ title: 'Unplanned leave logged', description: 'Recorded as emergency, pending review.' });
+      await loadPendingLeaves();
+    } else {
+      toast({ title: 'Failed', description: result.error, variant: 'destructive' });
     }
   }
 
@@ -772,6 +900,52 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     }
   }
 
+  async function handleSaveSchedule() {
+    if (!selectedEmployee) return;
+    setScheduleSaving(true);
+    try {
+      const cur = selectedEmployee;
+      const updates: Record<string, string | null> = {};
+      const curStart = cur.scheduleStart || '';
+      const curEnd = cur.scheduleEnd || '';
+      const curOff = cur.dayOff || 'Sunday';
+      if (scheduleDraft.scheduleStart !== curStart) {
+        updates.scheduleStart = scheduleDraft.scheduleStart ? scheduleDraft.scheduleStart : null;
+      }
+      if (scheduleDraft.scheduleEnd !== curEnd) {
+        updates.scheduleEnd = scheduleDraft.scheduleEnd ? scheduleDraft.scheduleEnd : null;
+      }
+      if (scheduleDraft.dayOff !== curOff) {
+        updates.dayOff = scheduleDraft.dayOff ? scheduleDraft.dayOff : null;
+      }
+      if (Object.keys(updates).length === 0) {
+        toast({ title: 'No changes', description: 'Schedule and weekly off are unchanged.' });
+        return;
+      }
+      const result = await updateEmployee(selectedEmployee.id, updates, employee.id);
+      if (result.success) {
+        toast({ title: 'Schedule saved', description: 'Shift times and weekly off day updated.' });
+        const merged = {
+          ...selectedEmployee,
+          scheduleStart: scheduleDraft.scheduleStart || undefined,
+          scheduleEnd: scheduleDraft.scheduleEnd || undefined,
+          dayOff: scheduleDraft.dayOff || undefined,
+        };
+        setSelectedEmployee(merged);
+        setEmployees((prev) =>
+          prev.map((e) => (e.id === selectedEmployee.id ? { ...e, ...merged } : e))
+        );
+      } else {
+        toast({ title: 'Save failed', description: result.error, variant: 'destructive' });
+      }
+    } catch (e: unknown) {
+      const err = e as Error;
+      toast({ title: 'Error', description: err.message || 'Failed to save schedule', variant: 'destructive' });
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
   // Open edit dialog with current employee data
   function openEditDialog() {
     if (!selectedEmployee) return;
@@ -784,9 +958,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       phoneNumber: selectedEmployee.phoneNumber || '',
       dateOfBirth: selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '',
       hireDate: selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '',
-      scheduleStart: selectedEmployee.scheduleStart || '',
-      scheduleEnd: selectedEmployee.scheduleEnd || '',
-      dayOff: selectedEmployee.dayOff || 'Sunday',
     });
     setEditEmployeeDialogOpen(true);
   }
@@ -826,19 +997,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         updates.hireDate = editEmployeeForm.hireDate;
       }
 
-      const curSchedStart = selectedEmployee.scheduleStart || '';
-      const curSchedEnd = selectedEmployee.scheduleEnd || '';
-      const curDayOff = selectedEmployee.dayOff || 'Sunday';
-      if (editEmployeeForm.scheduleStart !== curSchedStart) {
-        updates.scheduleStart = editEmployeeForm.scheduleStart ? editEmployeeForm.scheduleStart : null;
-      }
-      if (editEmployeeForm.scheduleEnd !== curSchedEnd) {
-        updates.scheduleEnd = editEmployeeForm.scheduleEnd ? editEmployeeForm.scheduleEnd : null;
-      }
-      if (editEmployeeForm.dayOff !== curDayOff) {
-        updates.dayOff = editEmployeeForm.dayOff ? editEmployeeForm.dayOff : null;
-      }
-
       if (Object.keys(updates).length === 0) {
         toast({
           title: 'No changes',
@@ -865,9 +1023,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         if (updates.phoneNumber) updatedFields.push('Phone Number');
         if (updates.dateOfBirth) updatedFields.push('Date of Birth');
         if (updates.hireDate) updatedFields.push('Hire Date');
-        if (updates.scheduleStart !== undefined) updatedFields.push('Schedule start');
-        if (updates.scheduleEnd !== undefined) updatedFields.push('Schedule end');
-        if (updates.dayOff !== undefined) updatedFields.push('Day off');
 
         if (updatedFields.length > 0) {
           try {
@@ -1295,6 +1450,54 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
         {/* Employee Details */}
         <div className="lg:col-span-2">
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5" />
+                Leave approvals
+              </CardTitle>
+              <CardDescription>
+                Employee requests and unplanned absences (default emergency). Approving as <strong>Monthly</strong> deducts inclusive calendar days from leave balance. <strong>Emergency</strong> does not auto-deduct.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {leavesLoading ? (
+                <LoadingSpinner block label="Loading leave requests" />
+              ) : pendingLeaves.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No pending leave requests.</p>
+              ) : (
+                <div className="space-y-3">
+                  {pendingLeaves.map((lr) => (
+                    <div
+                      key={lr.id}
+                      className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium">{lr.employeeName}</p>
+                        <p className="text-sm text-muted-foreground break-words">
+                          {lr.startDate} → {lr.endDate} · submitted as <strong>{lr.kind}</strong>
+                          {lr.source === 'absence_default_emergency' ? ' · unplanned / no prior request' : ''}
+                          {lr.reason ? ` — ${lr.reason}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        <Button size="sm" variant="secondary" onClick={() => handleApproveLeave(lr.id, 'monthly')}>
+                          Approve (monthly)
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleApproveLeave(lr.id, 'emergency')}>
+                          Approve (emergency)
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleRejectLeave(lr.id)}>
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {selectedEmployee ? (
             <div className="space-y-6">
               {/* Employee Info */}
@@ -1544,6 +1747,105 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 </CardContent>
               </Card>
 
+              {/* Work schedule: management + admin — shift presets, custom times, weekly off (payroll working days) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5" />
+                    Work schedule &amp; weekly off
+                  </CardTitle>
+                  <CardDescription>
+                    Set expected start/end and which weekday is off (used for late-in after start + 15 minutes, and salary per working day). Administrators and managers can edit.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="shift-preset">Common shifts</Label>
+                    <Select
+                      value={schedulePreset}
+                      onValueChange={(id) => {
+                        setSchedulePreset(id);
+                        const preset = SHIFT_PRESETS.find((p) => p.id === id);
+                        if (preset && id !== 'custom') {
+                          setScheduleDraft((d) => ({
+                            ...d,
+                            scheduleStart: preset.start,
+                            scheduleEnd: preset.end,
+                          }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="shift-preset">
+                        <SelectValue placeholder="Pick a template or custom" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SHIFT_PRESETS.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Choose a preset or Custom, then adjust the time fields for any shift pattern.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="panel-schedule-start">Schedule start</Label>
+                      <Input
+                        id="panel-schedule-start"
+                        type="time"
+                        value={scheduleDraft.scheduleStart}
+                        onChange={(e) => {
+                          setSchedulePreset('custom');
+                          setScheduleDraft((d) => ({ ...d, scheduleStart: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="panel-schedule-end">Schedule end</Label>
+                      <Input
+                        id="panel-schedule-end"
+                        type="time"
+                        value={scheduleDraft.scheduleEnd}
+                        onChange={(e) => {
+                          setSchedulePreset('custom');
+                          setScheduleDraft((d) => ({ ...d, scheduleEnd: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label htmlFor="panel-day-off">Weekly day off</Label>
+                      <Select
+                        value={scheduleDraft.dayOff}
+                        onValueChange={(value) => {
+                          setSchedulePreset('custom');
+                          setScheduleDraft((d) => ({ ...d, dayOff: value }));
+                        }}
+                      >
+                        <SelectTrigger id="panel-day-off">
+                          <SelectValue placeholder="Day off" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAY_OPTIONS.map((d) => (
+                            <SelectItem key={d} value={d}>
+                              {d}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Example: Wednesday off vs Monday off changes how many working days are in a month for pay.
+                      </p>
+                    </div>
+                  </div>
+                  <Button type="button" onClick={handleSaveSchedule} disabled={scheduleSaving}>
+                    {scheduleSaving ? <LoadingSpinner label="Saving" size="sm" /> : 'Save schedule'}
+                  </Button>
+                </CardContent>
+              </Card>
+
               {/* Compensation */}
               <Card>
                 <CardHeader>
@@ -1593,6 +1895,53 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         disabled={!isAdmin}
                       />
                     </div>
+                    {isAdmin && (
+                      <>
+                        <div>
+                          <Label htmlFor="loanDeduction">Loan deduction</Label>
+                          <Input
+                            id="loanDeduction"
+                            type="number"
+                            value={compForm.loanDeduction}
+                            onChange={(e) => setCompForm({ ...compForm, loanDeduction: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="lateDeduction">Late deduction</Label>
+                          <Input
+                            id="lateDeduction"
+                            type="number"
+                            value={compForm.lateDeduction}
+                            onChange={(e) => setCompForm({ ...compForm, lateDeduction: e.target.value })}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="rounded-md border bg-muted/20 p-4 space-y-2">
+                    <Label htmlFor="leaveBalance">Leave balance (days)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Pool for <strong>monthly</strong> leave (e.g. 12 days/year, 1 per month). Managers and admins can update this without opening full compensation.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                      <Input
+                        id="leaveBalance"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        className="sm:max-w-xs"
+                        value={compForm.leaveBalance}
+                        onChange={(e) => setCompForm({ ...compForm, leaveBalance: e.target.value })}
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={handleSaveLeaveBalance}
+                        disabled={!selectedEmployee || leaveBalanceSaving}
+                      >
+                        {leaveBalanceSaving ? <LoadingSpinner label="Saving" size="sm" /> : 'Save leave balance'}
+                      </Button>
+                    </div>
                   </div>
                   {compensation && selectedEmployee && (() => {
                     const now = new Date();
@@ -1600,14 +1949,15 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     const m = now.getMonth();
                     const salaryNum = parseFloat(compForm.salary) || compensation.salary || 0;
                     const cur = compForm.currency || compensation.currency;
-                    const wd = workingDaysInMonth(y, m, selectedEmployee.dayOff);
-                    const spd = salaryPerDayForMonth(salaryNum, y, m, selectedEmployee.dayOff);
+                    const dayOffForPreview = scheduleDraft.dayOff || selectedEmployee.dayOff || 'Sunday';
+                    const wd = workingDaysInMonth(y, m, dayOffForPreview);
+                    const spd = salaryPerDayForMonth(salaryNum, y, m, dayOffForPreview);
                     return (
                       <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
                         <p className="font-medium">Payroll preview (this month)</p>
                         <p>
                           <span className="text-muted-foreground">Working days in month:</span>{' '}
-                          {wd} (excluding weekly {selectedEmployee.dayOff || 'Sunday'})
+                          {wd} (excluding weekly {dayOffForPreview})
                         </p>
                         <p>
                           <span className="text-muted-foreground">Salary per day:</span>{' '}
@@ -1624,6 +1974,50 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   )}
                   <Button onClick={handleSaveCompensation} disabled={!isAdmin}>
                     Save Compensation
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Unplanned absence</CardTitle>
+                  <CardDescription>
+                    If someone was on leave without a request, log it here. It is stored as <strong>emergency</strong> and appears in Leave approvals until reviewed.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="unplanned-start">From</Label>
+                      <Input
+                        id="unplanned-start"
+                        type="date"
+                        value={unplannedLeave.startDate}
+                        onChange={(e) => setUnplannedLeave((u) => ({ ...u, startDate: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="unplanned-end">To</Label>
+                      <Input
+                        id="unplanned-end"
+                        type="date"
+                        value={unplannedLeave.endDate}
+                        onChange={(e) => setUnplannedLeave((u) => ({ ...u, endDate: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="unplanned-reason">Note (optional)</Label>
+                    <Textarea
+                      id="unplanned-reason"
+                      rows={2}
+                      value={unplannedLeave.reason}
+                      onChange={(e) => setUnplannedLeave((u) => ({ ...u, reason: e.target.value }))}
+                      placeholder="e.g. sick, family emergency"
+                    />
+                  </div>
+                  <Button type="button" variant="outline" onClick={handleSubmitUnplannedLeave}>
+                    Log unplanned leave
                   </Button>
                 </CardContent>
               </Card>
@@ -2609,43 +3003,6 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     Past hire dates can only be set by an administrator.
                   </p>
                 )}
-              </div>
-
-              <div>
-                <Label htmlFor="editScheduleStart">Schedule start</Label>
-                <Input
-                  id="editScheduleStart"
-                  type="time"
-                  value={editEmployeeForm.scheduleStart}
-                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, scheduleStart: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="editScheduleEnd">Schedule end</Label>
-                <Input
-                  id="editScheduleEnd"
-                  type="time"
-                  value={editEmployeeForm.scheduleEnd}
-                  onChange={(e) => setEditEmployeeForm({ ...editEmployeeForm, scheduleEnd: e.target.value })}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <Label htmlFor="editDayOff">Weekly day off</Label>
-                <Select
-                  value={editEmployeeForm.dayOff || 'Sunday'}
-                  onValueChange={(value) => setEditEmployeeForm({ ...editEmployeeForm, dayOff: value })}
-                >
-                  <SelectTrigger id="editDayOff">
-                    <SelectValue placeholder="Day off" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WEEKDAY_OPTIONS.map((d) => (
-                      <SelectItem key={d} value={d}>
-                        {d}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
 
               {/* Date of Birth */}

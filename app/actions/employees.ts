@@ -73,6 +73,15 @@ export async function updateCompensation(
   if (!gate.ok) return { success: false as const, error: gate.error };
   return employeesService.updateCompensation(employeeId, compensation, updatedBy);
 }
+export async function updateLeaveBalance(
+  employeeId: string,
+  leaveBalance: number | null,
+  updatedBy: string
+) {
+  const gate = await assertManagementOrAdmin(updatedBy);
+  if (!gate.ok) return { success: false as const, error: gate.error };
+  return employeesService.updateLeaveBalanceOnly(employeeId, leaveBalance, updatedBy);
+}
 export async function checkEmployeeExists(employeeId: string) {
   return employeesService.checkEmployeeExists(employeeId);
 }
