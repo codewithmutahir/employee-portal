@@ -8,6 +8,8 @@ import {
   calculateEstimatedWages,
   formatBreakLength,
   formatBreakType,
+  formatTime,
+  formatPortalGeneratedTimestamp,
 } from '@/lib/utils';
 
 interface EmployeeExportData {
@@ -33,7 +35,12 @@ function safeFormatTime(dateValue: string | Date | null | undefined, options?: I
   try {
     const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue;
     if (isNaN(date.getTime())) return '';
-    return date.toLocaleTimeString('en-US', options);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      ...options,
+      hour12: true,
+    });
   } catch {
     return '';
   }
@@ -56,7 +63,7 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   // Header
   output += '========================================\n';
   output += 'EMPLOYEE REPORT\n';
-  output += `Generated: ${new Date().toLocaleString()}\n`;
+  output += `Generated: ${formatPortalGeneratedTimestamp()}\n`;
   output += '========================================\n\n';
   
   // Employee Information
@@ -139,8 +146,8 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
     
     attendance.slice(0, 30).forEach(record => {
       const date = record.date || 'N/A';
-      const clockIn = record.clockIn ? new Date(record.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
-      const clockOut = record.clockOut ? new Date(record.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
+      const clockIn = record.clockIn ? formatTime(record.clockIn) : 'N/A';
+      const clockOut = record.clockOut ? formatTime(record.clockOut) : 'N/A';
       const hours = record.totalHours ? record.totalHours.toFixed(2) : 'N/A';
       const breaks = record.breaks ? record.breaks.length : 0;
       
@@ -199,7 +206,7 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
   
   // Header
   csv += 'ALL EMPLOYEES REPORT\n';
-  csv += `Generated: ${new Date().toLocaleString()}\n`;
+  csv += `Generated: ${formatPortalGeneratedTimestamp()}\n`;
   csv += '\n';
   
   // Combined Employee & Attendance Data
@@ -243,8 +250,8 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
     
     attendance.forEach(record => {
       const date = record.date || '';
-      const clockIn = record.clockIn ? new Date(record.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
-      const clockOut = record.clockOut ? new Date(record.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+      const clockIn = record.clockIn ? formatTime(record.clockIn) : '';
+      const clockOut = record.clockOut ? formatTime(record.clockOut) : '';
       const hours = record.totalHours ? record.totalHours.toFixed(2) : '';
       const breaks = record.breaks ? record.breaks.length : 0;
       

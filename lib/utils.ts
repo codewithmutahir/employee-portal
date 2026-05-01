@@ -54,7 +54,7 @@ export function formatDate(date: string | Date | null | undefined): string {
   }
 }
 
-/** Format time in the user's local timezone (clock in/out and breaks). Handles ISO strings and Firestore-like timestamps. */
+/** Format time in the user's local timezone (12-hour clock). Handles ISO strings and Firestore-like timestamps. */
 export function formatTime(date: string | Date | Record<string, unknown> | null | undefined): string {
   if (date == null) return 'N/A';
   try {
@@ -74,14 +74,56 @@ export function formatTime(date: string | Date | Record<string, unknown> | null 
     }
     if (isNaN(d.getTime())) return 'Invalid Time';
     const tz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-    return d.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    return d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
       minute: '2-digit',
+      hour12: true,
       ...(tz ? { timeZone: tz } : {}),
     });
   } catch {
     return 'Invalid Time';
   }
+}
+
+/**
+ * Display stored schedule times (HH:mm wall clock) as 12-hour, e.g. "21:00" → "9:00 PM".
+ * Non-matching strings are returned as-is.
+ */
+export function formatScheduleHm(hhmm: string | null | undefined): string {
+  if (hhmm == null || String(hhmm).trim() === '') return '—';
+  const s = String(hhmm).trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m) return s;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h < 0 || h > 23 || min < 0 || min > 59) return s;
+  const d = new Date(2000, 0, 1, h, min, 0, 0);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+/** Date + time for emails, exports, and reports (always 12-hour). */
+export function formatPortalDateTime(date: string | Date | null | undefined): string {
+  if (date == null || date === '') return 'N/A';
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date instanceof Date ? date : new Date(String(date));
+    if (isNaN(d.getTime())) return 'N/A';
+    return d.toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      hour12: true,
+    });
+  } catch {
+    return 'N/A';
+  }
+}
+
+/** "Generated" timestamps for print/CSV (12-hour). */
+export function formatPortalGeneratedTimestamp(): string {
+  return new Date().toLocaleString('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    hour12: true,
+  });
 }
 
 export function formatDateTime(date: string | Date): string {
@@ -188,8 +230,8 @@ ATTENDANCE RECORDS (Last 365 days)
     data.attendance.forEach((record) => {
       output += `
 Date: ${formatDate(record.date)}
-${record.clockIn ? `Clock In: ${new Date(record.clockIn).toLocaleTimeString()}` : 'No clock in'}
-${record.clockOut ? `Clock Out: ${new Date(record.clockOut).toLocaleTimeString()}` : 'No clock out'}
+${record.clockIn ? `Clock In: ${formatTime(record.clockIn)}` : 'No clock in'}
+${record.clockOut ? `Clock Out: ${formatTime(record.clockOut)}` : 'No clock out'}
 ${record.totalHours !== undefined ? `Total Hours: ${record.totalHours}` : ''}
 ${record.isEditedByManagement ? 'Edited by Management' : ''}
 ---`;
@@ -198,7 +240,7 @@ ${record.isEditedByManagement ? 'Edited by Management' : ''}
     output += 'No attendance records\n';
   }
 
-  output += `\n\nGenerated: ${new Date().toLocaleString()}\n`;
+  output += `\n\nGenerated: ${formatPortalGeneratedTimestamp()}\n`;
 
   return output;
 }

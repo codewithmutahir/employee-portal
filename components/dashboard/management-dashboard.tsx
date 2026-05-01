@@ -20,7 +20,7 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
-import { formatDate, formatTime, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
+import { formatDate, formatTime, formatScheduleHm, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
 import { workingDaysInMonth, salaryPerDayForMonth } from '@/lib/payroll-helpers';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle, ClipboardList } from 'lucide-react';
@@ -605,7 +605,13 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   async function handleApproveLeave(requestId: string, kind: LeaveRequestKind) {
     const result = await staffDecideLeaveRequest(requestId, 'approved', employee.id, { kindOverride: kind });
     if (result.success) {
-      toast({ title: 'Leave approved', description: kind === 'monthly' ? 'Monthly leave: days deducted from leave balance.' : 'Emergency leave: balance unchanged.' });
+      const deducts = kind === 'monthly' || kind === 'paid';
+      toast({
+        title: 'Leave approved',
+        description: deducts
+          ? 'Monthly/paid: inclusive days deducted from leave balance.'
+          : 'Emergency/unpaid: leave balance unchanged.',
+      });
       await loadPendingLeaves();
     } else {
       toast({ title: 'Could not approve', description: result.error, variant: 'destructive' });
@@ -1457,7 +1463,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 Leave approvals
               </CardTitle>
               <CardDescription>
-                Employee requests and unplanned absences (default emergency). Approving as <strong>Monthly</strong> deducts inclusive calendar days from leave balance. <strong>Emergency</strong> does not auto-deduct.
+                Pending requests from employees or unplanned absences. Approving as <strong>monthly</strong> or <strong>paid</strong> deducts inclusive calendar days from leave balance. <strong>Emergency</strong> and <strong>unpaid</strong> do not auto-deduct balance.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1484,8 +1490,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                         <Button size="sm" variant="secondary" onClick={() => handleApproveLeave(lr.id, 'monthly')}>
                           Approve (monthly)
                         </Button>
+                        <Button size="sm" variant="secondary" onClick={() => handleApproveLeave(lr.id, 'paid')}>
+                          Approve (paid)
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => handleApproveLeave(lr.id, 'emergency')}>
                           Approve (emergency)
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleApproveLeave(lr.id, 'unpaid')}>
+                          Approve (unpaid)
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => handleRejectLeave(lr.id)}>
                           Reject
@@ -1708,7 +1720,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                       <div>
                         <p className="text-sm text-muted-foreground">Working Hours</p>
                         <p className="font-medium">
-                          {(selectedEmployee.scheduleStart || '—') + ' – ' + (selectedEmployee.scheduleEnd || '—')}
+                          {(selectedEmployee.scheduleStart ? formatScheduleHm(selectedEmployee.scheduleStart) : '—') +
+                            ' – ' +
+                            (selectedEmployee.scheduleEnd ? formatScheduleHm(selectedEmployee.scheduleEnd) : '—')}
                         </p>
                       </div>
                     )}

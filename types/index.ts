@@ -48,7 +48,7 @@ export interface Compensation {
   dayOff?: string;
 }
 
-export type LeaveRequestKind = 'monthly' | 'emergency';
+export type LeaveRequestKind = 'monthly' | 'emergency' | 'paid' | 'unpaid';
 export type LeaveRequestStatus = 'pending' | 'approved' | 'rejected';
 export type LeaveRequestSource = 'employee' | 'absence_default_emergency';
 

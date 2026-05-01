@@ -5,6 +5,7 @@
  */
 
 import { captureApiError } from '@/lib/monitoring/capture-error';
+import { formatPortalDateTime } from '@/lib/utils';
 
 const MAILTRAP_API_TOKEN = process.env.MAILTRAP_API_TOKEN;
 const MAILTRAP_SENDER_EMAIL = process.env.MAILTRAP_SENDER_EMAIL || 'noreply@employeeportal.com';
@@ -313,7 +314,7 @@ export async function sendIssueReportedEmail(
     issueId: string;
   }
 ): Promise<EmailResult> {
-  const dateStr = new Date(issue.createdAt).toLocaleString();
+  const dateStr = formatPortalDateTime(issue.createdAt);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 20px; border-radius: 8px 8px 0 0;">
@@ -343,6 +344,74 @@ export async function sendIssueReportedEmail(
     html,
     text,
     category: 'issue-reported',
+  });
+}
+
+export async function sendLeaveRequestSubmittedEmail(
+  to: string | string[],
+  leave: {
+    employeeName: string;
+    employeeEmail: string;
+    startDate: string;
+    endDate: string;
+    kind: string;
+    reason?: string;
+    days: number;
+    requestId: string;
+    submittedAt: string;
+  }
+): Promise<EmailResult> {
+  const dateStr = formatPortalDateTime(leave.submittedAt);
+  const kindLabel = (() => {
+    switch (leave.kind) {
+      case 'monthly':
+        return 'Monthly accrued leave';
+      case 'emergency':
+        return 'Emergency leave';
+      case 'paid':
+        return 'Paid leave';
+      case 'unpaid':
+        return 'Unpaid leave';
+      default:
+        return leave.kind;
+    }
+  })();
+  const reasonBlock = leave.reason
+    ? `<p style="color: #374151; font-size: 14px; margin: 12px 0; white-space: pre-wrap;"><strong>Reason:</strong><br/>${escapeHtml(leave.reason)}</p>`
+    : '';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 24px;">📅 New leave request</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;"><strong>${escapeHtml(leave.employeeName)}</strong> submitted a leave request pending your approval.</p>
+        <ul style="color: #374151; font-size: 14px; line-height: 1.6;">
+          <li><strong>Dates:</strong> ${escapeHtml(leave.startDate)} → ${escapeHtml(leave.endDate)} (${leave.days} calendar day${leave.days === 1 ? '' : 's'})</li>
+          <li><strong>Type:</strong> ${escapeHtml(kindLabel)}</li>
+          <li><strong>Employee email:</strong> ${escapeHtml(leave.employeeEmail || '—')}</li>
+          <li><strong>Request ID:</strong> ${escapeHtml(leave.requestId)}</li>
+        </ul>
+        ${reasonBlock}
+        <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 16px 0;">
+          <p style="color: #1e40af; margin: 0; font-size: 14px;"><strong>Submitted:</strong> ${dateStr}</p>
+        </div>
+        <p style="color: #6b7280; font-size: 14px;">Please sign in to the Employee Portal dashboard to approve or reject this request.</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
+        Sent from Employee Portal
+      </p>
+    </div>
+  `;
+
+  const text = `New leave request\n\nEmployee: ${leave.employeeName} (${leave.employeeEmail || 'no email'})\nDates: ${leave.startDate} to ${leave.endDate} (${leave.days} day(s))\nType: ${kindLabel}\nRequest ID: ${leave.requestId}\nSubmitted: ${dateStr}${leave.reason ? `\n\nReason:\n${leave.reason}` : ''}\n\nApprove or reject in the Employee Portal management dashboard.`;
+
+  return sendEmail({
+    to,
+    subject: `Leave request: ${leave.employeeName} (${leave.startDate} – ${leave.endDate})`,
+    html,
+    text,
+    category: 'leave-request-submitted',
   });
 }
 
@@ -644,7 +713,7 @@ export async function sendPasswordChangeEmail(
           </p>
         </div>
         <p style="color: #6b7280; font-size: 14px;">
-          Changed on: ${new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}
+          Changed on: ${formatPortalDateTime(new Date())}
         </p>
       </div>
       <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">
@@ -653,7 +722,7 @@ export async function sendPasswordChangeEmail(
     </div>
   `;
 
-  const text = `Dear ${employeeName},\n\nYour Employee Portal password has been successfully changed.\n\nIf you did not make this change, please contact HR immediately.\n\nChanged on: ${new Date().toLocaleString()}`;
+  const text = `Dear ${employeeName},\n\nYour Employee Portal password has been successfully changed.\n\nIf you did not make this change, please contact HR immediately.\n\nChanged on: ${formatPortalDateTime(new Date())}`;
 
   return sendEmail({
     to: employeeEmail,

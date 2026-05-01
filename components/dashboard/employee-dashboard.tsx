@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Employee, AttendanceRecord, Note, Compensation, LeaveRequest, LeaveRequestKind } from "@/types";
 import {
   Card,
@@ -30,7 +30,7 @@ import {
 import { getCompensation } from "@/app/actions/employees";
 import { calculateTenure } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
-import { formatDate, formatTime, isToday } from "@/lib/utils";
+import { formatDate, formatTime, formatScheduleHm, isToday } from "@/lib/utils";
 import { salaryPerDayForMonth, workingDaysInMonth } from "@/lib/payroll-helpers";
 import { resolveAttendanceStatusLabel } from "@/lib/attendance-status";
 import { useAuth } from "@/components/auth-provider";
@@ -563,7 +563,7 @@ export default function EmployeeDashboard({
             {employee.scheduleStart && employee.scheduleEnd && (
               <div>
                 <p className="text-sm text-muted-foreground">Working Hours</p>
-                <p className="font-medium">{employee.scheduleStart} – {employee.scheduleEnd}</p>
+                <p className="font-medium">{formatScheduleHm(employee.scheduleStart)} – {formatScheduleHm(employee.scheduleEnd)}</p>
               </div>
             )}
             {employee.dayOff && (
@@ -785,30 +785,39 @@ export default function EmployeeDashboard({
 
       {/* Salary Slip */}
       {compensation && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Salary Slip
-            </CardTitle>
-            <CardDescription>
-              {(() => {
-                const now = new Date();
-                return now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-              })()}
-            </CardDescription>
+        <Card className="overflow-hidden border-0 shadow-md ring-1 ring-border/60">
+          <CardHeader className="space-y-1 border-b bg-gradient-to-r from-primary/[0.07] via-muted/30 to-transparent pb-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <DollarSign className="h-5 w-5" />
+                  </span>
+                  Salary slip
+                </CardTitle>
+                <CardDescription className="text-base font-medium text-foreground/80">
+                  {(() => {
+                    const now = new Date();
+                    return now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                  })()}
+                </CardDescription>
+              </div>
+              <div className="rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+                {compensation.currency} · {workingDaysInMonth(new Date().getFullYear(), new Date().getMonth(), employee.dayOff || "Sunday")} working days
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {(() => {
               const now = new Date();
               const year = now.getFullYear();
               const month = now.getMonth();
-              const dayOff = employee.dayOff || 'Sunday';
+              const dayOff = employee.dayOff || "Sunday";
               const workingDays = workingDaysInMonth(year, month, dayOff);
               const salaryPerDay = salaryPerDayForMonth(compensation.salary, year, month, dayOff);
-              const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+              const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}`;
               const latesCount = attendanceHistory.filter(
-                (r) => r.date.startsWith(monthPrefix) && r.status === 'Late In'
+                (r) => r.date.startsWith(monthPrefix) && r.status === "Late In"
               ).length;
 
               const leavesDeduction = 0;
@@ -819,69 +828,107 @@ export default function EmployeeDashboard({
 
               const netSalary = compensation.salary - leavesDeduction - lateDeduction - loanDeduction + allowances + bonus;
 
+              const fmt = (n: number, frac = false) =>
+                `${compensation.currency} ${n.toLocaleString(undefined, frac ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 })}`;
+
+              const Row = ({
+                label,
+                value,
+                muted,
+                emphasize,
+                danger,
+              }: {
+                label: string;
+                value: ReactNode;
+                muted?: boolean;
+                emphasize?: boolean;
+                danger?: boolean;
+              }) => (
+                <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
+                  <span className={muted ? "text-muted-foreground" : "font-medium text-foreground/90"}>{label}</span>
+                  <span
+                    className={`text-right tabular-nums ${emphasize ? "font-semibold" : ""} ${danger ? "font-semibold text-red-600" : ""}`}
+                  >
+                    {value}
+                  </span>
+                </div>
+              );
+
               return (
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <tbody>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Employee Name</td>
-                        <td className="px-4 py-2 font-semibold">{employee.displayName}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Leave Balance</td>
-                        <td className="px-4 py-2">{compensation.leaveBalance ?? '-'}</td>
-                      </tr>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Day Off</td>
-                        <td className="px-4 py-2">{dayOff}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Working Days in Month</td>
-                        <td className="px-4 py-2">{workingDays}</td>
-                      </tr>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Salary</td>
-                        <td className="px-4 py-2 font-semibold">{compensation.currency} {compensation.salary.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Salary Per Day</td>
-                        <td className="px-4 py-2 font-semibold">{compensation.currency} {salaryPerDay.toLocaleString()}</td>
-                      </tr>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Leaves Deduction</td>
-                        <td className="px-4 py-2">{leavesDeduction > 0 ? `${compensation.currency} ${leavesDeduction.toLocaleString()}` : '-'}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Lates</td>
-                        <td className={`px-4 py-2 ${latesCount > 0 ? 'text-red-600 font-semibold' : ''}`}>{latesCount > 0 ? latesCount : '-'}</td>
-                      </tr>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Late Deduction</td>
-                        <td className={`px-4 py-2 ${lateDeduction > 0 ? 'text-red-600 font-semibold' : ''}`}>{lateDeduction > 0 ? `${compensation.currency} ${lateDeduction.toLocaleString()}` : '-'}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Loan Deduction</td>
-                        <td className={`px-4 py-2 ${loanDeduction > 0 ? 'text-red-600 font-semibold' : ''}`}>{loanDeduction > 0 ? `${compensation.currency} ${loanDeduction.toLocaleString()}` : '-'}</td>
-                      </tr>
-                      <tr className="border-b bg-muted/30">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Allowances</td>
-                        <td className="px-4 py-2">{allowances > 0 ? `${compensation.currency} ${allowances.toLocaleString()}` : '-'}</td>
-                      </tr>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium text-muted-foreground">Bonus</td>
-                        <td className="px-4 py-2">{bonus > 0 ? `${compensation.currency} ${bonus.toLocaleString()}` : '-'}</td>
-                      </tr>
-                      <tr className="bg-primary/10">
-                        <td className="px-4 py-3 font-bold">Net Salary</td>
-                        <td className="px-4 py-3 font-bold text-lg">{compensation.currency} {Math.round(netSalary).toLocaleString()}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div className="px-4 py-3 bg-muted/20 border-t text-xs text-muted-foreground space-y-1">
-                    <p>Salary per day: {compensation.currency} {compensation.salary.toLocaleString()} ÷ {workingDays} working days = {compensation.currency} {salaryPerDay.toLocaleString()} per day (after weekly day off).</p>
-                    <p>Lateness: clock-in more than 15 minutes after scheduled start ({employee.scheduleStart || 'your set start'}) counts as Late In.</p>
-                    <p className="pt-2 border-t border-muted/50">Prepared by: —</p>
-                    <p>Reviewed by: —</p>
+                <div className="bg-gradient-to-b from-muted/20 to-background">
+                  <div className="border-b border-border/60 bg-card px-5 py-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Employee</p>
+                        <p className="text-lg font-semibold tracking-tight">{employee.displayName}</p>
+                      </div>
+                      <div className="sm:text-right">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Leave balance</p>
+                        <p className="text-2xl font-semibold tabular-nums text-primary">{compensation.leaveBalance ?? "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-0 sm:grid-cols-2 sm:divide-x sm:divide-border/60">
+                    <div className="p-5 space-y-0.5">
+                      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Schedule & base pay</p>
+                      <Row label="Day off" value={dayOff} muted />
+                      <Row label="Working days (this month)" value={workingDays} muted />
+                      <Row label="Base salary" value={fmt(compensation.salary, true)} emphasize />
+                      <Row label="Salary per day" value={fmt(salaryPerDay)} emphasize />
+                    </div>
+                    <div className="p-5 space-y-0.5 border-t border-border/60 sm:border-t-0">
+                      <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Adjustments</p>
+                      <Row
+                        label="Leaves deduction"
+                        value={leavesDeduction > 0 ? fmt(leavesDeduction) : "—"}
+                        danger={leavesDeduction > 0}
+                        muted
+                      />
+                      <Row
+                        label="Lates"
+                        value={latesCount > 0 ? latesCount : "—"}
+                        danger={latesCount > 0}
+                        muted
+                      />
+                      <Row
+                        label="Late deduction"
+                        value={lateDeduction > 0 ? fmt(lateDeduction) : "—"}
+                        danger={lateDeduction > 0}
+                        muted
+                      />
+                      <Row
+                        label="Loan deduction"
+                        value={loanDeduction > 0 ? fmt(loanDeduction) : "—"}
+                        danger={loanDeduction > 0}
+                        muted
+                      />
+                      <Row label="Allowances" value={allowances > 0 ? fmt(allowances) : "—"} muted />
+                      <Row label="Bonus" value={bonus > 0 ? fmt(bonus) : "—"} muted />
+                    </div>
+                  </div>
+
+                  <div className="mx-5 mb-5 rounded-xl border border-primary/20 bg-primary/[0.08] px-4 py-4 shadow-inner">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-sm font-semibold uppercase tracking-wide text-primary">Net salary</span>
+                      <span className="text-2xl font-bold tabular-nums tracking-tight text-primary">
+                        {compensation.currency} {Math.round(netSalary).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border/60 bg-muted/25 px-5 py-4 text-xs leading-relaxed text-muted-foreground">
+                    <p>
+                      <span className="font-medium text-foreground/70">How per-day pay is calculated:</span>{" "}
+                      {compensation.currency} {compensation.salary.toLocaleString()} ÷ {workingDays} working days ={" "}
+                      {compensation.currency} {salaryPerDay.toLocaleString()} per day (after your weekly day off).
+                    </p>
+                    <p className="mt-2">
+                      <span className="font-medium text-foreground/70">Lateness:</span> clock-in more than 15 minutes after
+                      scheduled start (
+                      {employee.scheduleStart ? formatScheduleHm(employee.scheduleStart) : "your set start"}
+                      ) counts as Late In.
+                    </p>
                   </div>
                 </div>
               );
@@ -898,7 +945,7 @@ export default function EmployeeDashboard({
               Request leave
             </CardTitle>
             <CardDescription>
-              <strong>Monthly</strong> leave uses your accrued balance (often 12 days/year, 1 per month — your balance appears on the salary slip). <strong>Emergency</strong> is for urgent situations. A manager or administrator must approve your request.
+              <strong>Monthly</strong> and <strong>paid</strong> leave usually draw from your accrued balance once approved. <strong>Emergency</strong> and <strong>unpaid</strong> are for urgent or unpaid time off; balance rules are applied when management approves. A manager or administrator must approve every request.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -933,7 +980,9 @@ export default function EmployeeDashboard({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monthly">Monthly accrued leave</SelectItem>
+                  <SelectItem value="paid">Paid leave</SelectItem>
                   <SelectItem value="emergency">Emergency leave</SelectItem>
+                  <SelectItem value="unpaid">Unpaid leave</SelectItem>
                 </SelectContent>
               </Select>
             </div>

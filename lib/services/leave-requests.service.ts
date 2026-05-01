@@ -6,7 +6,22 @@ import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import type { LeaveRequest, LeaveRequestKind, LeaveRequestSource, LeaveRequestStatus } from '@/types';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
-import { getEmployee } from '@/lib/services/employees.service';
+import { getEmployee, getManagementUsers } from '@/lib/services/employees.service';
+import { sendLeaveRequestSubmittedEmail } from '@/lib/services/email.service';
+
+const LEAVE_KINDS: LeaveRequestKind[] = ['monthly', 'emergency', 'paid', 'unpaid'];
+
+function parseLeaveKind(value: unknown): LeaveRequestKind {
+  if (typeof value === 'string' && (LEAVE_KINDS as string[]).includes(value)) {
+    return value as LeaveRequestKind;
+  }
+  return 'emergency';
+}
+
+/** Approved monthly or paid leave consumes accrued leave balance days. */
+export function leaveKindDeductsBalance(kind: LeaveRequestKind): boolean {
+  return kind === 'monthly' || kind === 'paid';
+}
 
 function toISO(v: unknown): string {
   if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
@@ -23,7 +38,7 @@ function docToLeaveRequest(id: string, data: Record<string, unknown>): LeaveRequ
     employeeName: (data.employeeName as string) || '',
     startDate: data.startDate as string,
     endDate: data.endDate as string,
-    kind: (data.kind as LeaveRequestKind) || 'emergency',
+    kind: parseLeaveKind(data.kind),
     reason: data.reason as string | undefined,
     status: (data.status as LeaveRequestStatus) || 'pending',
     source: (data.source as LeaveRequestSource) || 'employee',
@@ -87,6 +102,40 @@ export async function createLeaveRequest(
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    const nowIso = new Date().toISOString();
+    try {
+      const staff = await getManagementUsers();
+      const staffEmails = [
+        ...new Set(
+          staff
+            .filter((u) => u.status === 'active')
+            .map((m) => m.email.trim())
+            .filter((e) => e.includes('@'))
+        ),
+      ];
+      if (staffEmails.length > 0) {
+        const emailResult = await sendLeaveRequestSubmittedEmail(staffEmails, {
+          employeeName: emp.displayName || 'Employee',
+          employeeEmail: emp.email || '',
+          startDate: payload.startDate.trim(),
+          endDate: payload.endDate.trim(),
+          kind: payload.kind,
+          reason: payload.reason?.trim(),
+          days,
+          requestId: ref.id,
+          submittedAt: nowIso,
+        });
+        if (!emailResult.success) {
+          console.error('Failed to send leave request notification email:', emailResult.error);
+        }
+      } else {
+        console.warn('No management/admin emails found for leave request notification');
+      }
+    } catch (notifyErr: unknown) {
+      console.error('Leave request notification email error:', notifyErr);
+    }
+
     return { success: true, id: ref.id };
   } catch (e: unknown) {
     const err = e as Error;
@@ -188,7 +237,7 @@ export async function decideLeaveRequest(
     const employeeId = data.employeeId as string;
     const startDate = data.startDate as string;
     const endDate = data.endDate as string;
-    let kind = (data.kind as LeaveRequestKind) || 'emergency';
+    let kind = parseLeaveKind(data.kind);
     if (options?.kindOverride) kind = options.kindOverride;
 
     if (decision === 'rejected') {
@@ -221,7 +270,7 @@ export async function decideLeaveRequest(
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      if (kind === 'monthly' && days > 0) {
+      if (leaveKindDeductsBalance(kind) && days > 0) {
         const compRef = adminDb.collection('compensation').doc(employeeId);
         const compSnap = await tx.get(compRef);
         let cur = 0;

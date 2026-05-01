@@ -38,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en-US">
       <head>
         <meta name="robots" content="noindex, nofollow, noarchive" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
