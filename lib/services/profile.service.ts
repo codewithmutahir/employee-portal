@@ -37,6 +37,12 @@ export async function updateOwnProfile(
       announcementEmails: boolean;
       reminderEmails: boolean;
     };
+    /** Employee self-service (syncs with web portal schedule fields). */
+    scheduleStart?: string | null;
+    scheduleEnd?: string | null;
+    dayOff?: string | null;
+    hireDate?: string | null;
+    dateOfBirth?: string | null;
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -56,6 +62,44 @@ export async function updateOwnProfile(
 
     if (Object.keys(cleanUpdates).length === 0) {
       return { success: false, error: 'No updates provided' };
+    }
+
+    const weekdays = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+    if (updates.dayOff !== undefined && updates.dayOff !== null) {
+      const d = String(updates.dayOff).trim();
+      if (d && !weekdays.some((w) => w.toLowerCase() === d.toLowerCase())) {
+        return { success: false, error: 'Day off must be a weekday name (e.g. Sunday).' };
+      }
+    }
+    const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
+    if (updates.scheduleStart !== undefined && updates.scheduleStart !== null && updates.scheduleStart !== '') {
+      if (!hhmm.test(String(updates.scheduleStart).trim())) {
+        return { success: false, error: 'Schedule start must be HH:mm (24h storage, e.g. 21:00).' };
+      }
+    }
+    if (updates.scheduleEnd !== undefined && updates.scheduleEnd !== null && updates.scheduleEnd !== '') {
+      if (!hhmm.test(String(updates.scheduleEnd).trim())) {
+        return { success: false, error: 'Schedule end must be HH:mm (24h storage, e.g. 06:00).' };
+      }
+    }
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (updates.hireDate !== undefined && updates.hireDate !== null && updates.hireDate !== '') {
+      if (!ymd.test(String(updates.hireDate).trim())) {
+        return { success: false, error: 'Hire date must be YYYY-MM-DD.' };
+      }
+    }
+    if (updates.dateOfBirth !== undefined && updates.dateOfBirth !== null && updates.dateOfBirth !== '') {
+      if (!ymd.test(String(updates.dateOfBirth).trim())) {
+        return { success: false, error: 'Birth date must be YYYY-MM-DD.' };
+      }
     }
 
     cleanUpdates.updatedAt = FieldValue.serverTimestamp();

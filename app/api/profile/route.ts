@@ -69,9 +69,19 @@ export async function PATCH(request: NextRequest) {
     const allowed = [
       'displayName', 'phoneNumber', 'address', 'city', 'state', 'zipCode', 'country',
       'personalEmail', 'preferredName', 'pronouns', 'bio', 'skills', 'languages', 'socialLinks',
+      'scheduleStart', 'scheduleEnd', 'dayOff', 'hireDate', 'dateOfBirth',
     ];
+    const employeeOnlyFields = new Set([
+      'scheduleStart',
+      'scheduleEnd',
+      'dayOff',
+      'hireDate',
+      'dateOfBirth',
+    ]);
     for (const key of allowed) {
-      if (body[key] !== undefined) profileUpdates[key] = body[key];
+      if (body[key] === undefined) continue;
+      if (employeeOnlyFields.has(key) && auth.role !== 'employee') continue;
+      profileUpdates[key] = body[key];
     }
     if (Object.keys(profileUpdates).length === 0) {
       return jsonError('No valid profile updates provided');
