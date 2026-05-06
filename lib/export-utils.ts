@@ -1,5 +1,6 @@
 import { Employee, AttendanceRecord, Compensation } from '@/types';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
+import { salaryPerDayForMonth } from '@/lib/payroll-helpers';
 import {
   calculateRegularHours,
   calculateOTHours,
@@ -298,6 +299,8 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     'Unpaid breaks',
     'OT hours',
     'Estimated wages',
+    'Attendance status',
+    'Late',
     'No show reason',
     'Employee note',
     'Manager note'
@@ -308,7 +311,7 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   const salaryLabel =
     compensation != null && Number(compensation.salary) > 0 ? String(compensation.salary) : 'N/A';
   const empties = (n: number) => Array.from({ length: n }, () => '""').join(',');
-  csv += `"PAY SUMMARY","Annual salary (${cur}) ${salaryLabel}","Implied hourly (${hourlyRate !== undefined ? `${hourlyRate.toFixed(2)}` : 'N/A'})","Period hours this export (${periodHours.toFixed(2)})",${empties(17)}\n`;
+  csv += `"PAY SUMMARY","Annual salary (${cur}) ${salaryLabel}","Implied hourly (${hourlyRate !== undefined ? `${hourlyRate.toFixed(2)}` : 'N/A'})","Period hours this export (${periodHours.toFixed(2)})",${empties(19)}\n`;
   csv += headers.join(',') + '\n';
   sortedAttendance.forEach((record) => {
     // Format dates with safe formatting
@@ -335,9 +338,24 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     const regularHours = calculateRegularHours(totalPaidHours);
     const otHours = calculateOTHours(totalPaidHours);
     const estimatedWages = calculateEstimatedWages(regularHours, otHours, hourlyRate);
-    
+
+    const recordDate = new Date(record.date);
+    const hasValidRecordDate = !isNaN(recordDate.getTime());
+    const salaryPerDay =
+      compensation?.salary && hasValidRecordDate
+        ? salaryPerDayForMonth(
+            compensation.salary,
+            recordDate.getFullYear(),
+            recordDate.getMonth(),
+            employee.dayOff || 'Sunday'
+          )
+        : 0;
     const wageRateStr =
-      hourlyRate !== undefined ? `${cur} ${hourlyRate.toFixed(2)}/hr` : 'N/A (add salary in compensation)';
+      salaryPerDay > 0
+        ? `${cur} ${salaryPerDay.toLocaleString()}/day`
+        : 'N/A (add monthly salary in compensation)';
+    const attendanceStatus = record.status || '';
+    const lateFlag = attendanceStatus === 'Late In' ? 'Late In' : '';
     
     // Build row
     const row = [
@@ -358,7 +376,9 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
       regularHours.toFixed(2),
       unpaidBreaks.toFixed(2),
       otHours.toFixed(2),
-      `"$${estimatedWages.toFixed(2)}"`,
+      `"${cur} ${estimatedWages.toFixed(2)}"`,
+      `"${attendanceStatus}"`,
+      `"${lateFlag}"`,
       `"${record.noShowReason || ''}"`,
       `"${record.employeeNote || ''}"`,
       `"${record.managerNote || ''}"`
@@ -401,7 +421,9 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     totalRegularHours.toFixed(2),
     totalUnpaidBreaks.toFixed(2),
     totalOTHours.toFixed(2),
-    `"$${totalEstimatedWages.toFixed(2)}"`,
+    `"${cur} ${totalEstimatedWages.toFixed(2)}"`,
+    '""',
+    '""',
     '""',
     '""',
     '""'
@@ -436,6 +458,8 @@ export function formatAllEmployeesDataAsTimecardCSV(data: EmployeeExportData[]):
     'Unpaid breaks',
     'OT hours',
     'Estimated wages',
+    'Attendance status',
+    'Late',
     'No show reason',
     'Employee note',
     'Manager note'
@@ -446,8 +470,8 @@ export function formatAllEmployeesDataAsTimecardCSV(data: EmployeeExportData[]):
   // Process each employee
   data.forEach((employeeData) => {
     const employeeCSV = formatEmployeeDataAsTimecardCSV(employeeData);
-    // Remove header from employee CSV and add rows
-    const rows = employeeCSV.split('\n').slice(1).filter(row => row.trim() !== '');
+    // Remove pay-summary and per-employee header rows.
+    const rows = employeeCSV.split('\n').slice(2).filter(row => row.trim() !== '');
     csv += rows.join('\n') + '\n';
   });
   

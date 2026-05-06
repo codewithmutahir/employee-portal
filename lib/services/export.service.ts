@@ -98,6 +98,7 @@ export async function exportEmployeeData(employeeId: string): Promise<{
           isPaid: b.isPaid,
         })),
         totalHours: data.totalHours,
+        status: data.status,
         payrollId: data.payrollId,
         noShowReason: data.noShowReason,
         employeeNote: data.employeeNote,
