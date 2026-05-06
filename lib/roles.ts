@@ -1,10 +1,14 @@
 import type { UserRole } from '@/types';
 
-/** User designated to always resolve as administrator (elevated from stored management role if needed). */
-export const DESIGNATED_ADMIN_UID = '8mngxDs8DWYqpmfbCeU4vw6hBb82';
+/** Users that should always resolve as administrators regardless of stored role. */
+export const DESIGNATED_ADMIN_UIDS = new Set<string>([
+  '8mngxDs8DWYqpmfbCeU4vw6hBb82',
+  'lgRAJpZuImUVHdE40XBPB2ekeai1',
+  'hyNhrHfhoYN710bJMyywrgXT4xl2',
+]);
 
 export function resolveUserRole(uid: string, stored: UserRole): UserRole {
-  if (uid === DESIGNATED_ADMIN_UID && stored === 'management') return 'admin';
+  if (DESIGNATED_ADMIN_UIDS.has(uid)) return 'admin';
   return stored;
 }
 

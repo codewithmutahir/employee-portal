@@ -56,6 +56,7 @@ const SHIFT_PRESETS: { id: string; label: string; start: string; end: string }[]
 
 export default function ManagementDashboard({ employee }: ManagementDashboardProps) {
   const isAdmin = employee.role === 'admin';
+  const managedUsersLabel = isAdmin ? 'users' : 'employees';
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [compensation, setCompensation] = useState<Compensation | null>(null);
@@ -148,6 +149,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [editEmployeeForm, setEditEmployeeForm] = useState({
     displayName: '',
     email: '',
+    role: 'employee' as 'employee' | 'management' | 'admin',
     department: '',
     position: '',
     phoneNumber: '',
@@ -176,14 +178,14 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   async function loadEmployees() {
     setEmployeesLoading(true);
     try {
-      // Pass true to exclude management users
-      const emps = await getAllEmployees(true);
+      // Admins see every role; management sees only employees.
+      const emps = await getAllEmployees(!isAdmin);
       setEmployees(emps);
 
       if (emps.length === 0) {
         toast({
-          title: 'No employees found',
-          description: 'There are no employees in the system',
+          title: `No ${managedUsersLabel} found`,
+          description: `There are no ${managedUsersLabel} in the system`,
         });
       }
     } catch (error: any) {
@@ -959,6 +961,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     setEditEmployeeForm({
       displayName: selectedEmployee.displayName || '',
       email: selectedEmployee.email || '',
+      role: selectedEmployee.role,
       department: selectedEmployee.department || '',
       position: selectedEmployee.position || '',
       phoneNumber: selectedEmployee.phoneNumber || '',
@@ -981,6 +984,17 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       }
       if (editEmployeeForm.email !== selectedEmployee.email) {
         updates.email = editEmployeeForm.email;
+      }
+      if (editEmployeeForm.role !== selectedEmployee.role) {
+        if (selectedEmployee.id === employee.id) {
+          toast({
+            title: 'Action blocked',
+            description: 'You cannot change your own role from this screen.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        updates.role = editEmployeeForm.role;
       }
       if (editEmployeeForm.department !== (selectedEmployee.department || '')) {
         updates.department = editEmployeeForm.department || null;
@@ -1024,6 +1038,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         const updatedFields: string[] = [];
         if (updates.displayName) updatedFields.push('Name');
         if (updates.email) updatedFields.push('Email');
+        if (updates.role) updatedFields.push('Role');
         if (updates.department) updatedFields.push('Department');
         if (updates.position) updatedFields.push('Position');
         if (updates.phoneNumber) updatedFields.push('Phone Number');
@@ -1141,7 +1156,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
             <CardHeader>
               <CardTitle className="flex items-center">
                 <Users className="mr-2 h-5 w-5" />
-                Employees ({filteredEmployees.length})
+                {isAdmin ? 'Users' : 'Employees'} ({filteredEmployees.length})
               </CardTitle>
               {/* Department Filter */}
               <div className="pt-2">
@@ -1264,8 +1279,8 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">
                     {selectedDepartment === 'all'
-                      ? 'No employees found'
-                      : `No employees in ${selectedDepartment} department`}
+                      ? `No ${managedUsersLabel} found`
+                      : `No ${managedUsersLabel} in ${selectedDepartment} department`}
                   </p>
                   <Button
                     variant="outline"
@@ -2979,6 +2994,27 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   ))}
                 </datalist>
               </div>
+
+              {isAdmin && (
+                <div>
+                  <Label htmlFor="editRole">Role</Label>
+                  <Select
+                    value={editEmployeeForm.role}
+                    onValueChange={(value: 'employee' | 'management' | 'admin') =>
+                      setEditEmployeeForm({ ...editEmployeeForm, role: value })
+                    }
+                  >
+                    <SelectTrigger id="editRole">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="employee">Employee</SelectItem>
+                      <SelectItem value="management">Management</SelectItem>
+                      <SelectItem value="admin">Administrator</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Position */}
               <div>
