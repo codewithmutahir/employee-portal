@@ -10,6 +10,10 @@ import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
 import { resolveUserRole } from '@/lib/roles';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { sendWelcomeEmail } from './email.service';
+import {
+  ScheduleHistoryEntry,
+  schedulesEqual,
+} from '@/lib/schedule-history';
 
 /** Hire date before local calendar today: only admins may set (blocks managers if update path is opened to them). */
 async function assertCanSetPastHireDate(
@@ -34,6 +38,141 @@ async function assertCanSetPastHireDate(
     };
   }
   return { ok: true };
+}
+
+function todayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function toYmd(value: unknown): string | undefined {
+  if (!value) return undefined;
+  try {
+    if (typeof (value as { toDate?: () => Date }).toDate === 'function') {
+      const d = (value as { toDate: () => Date }).toDate();
+      if (isNaN(d.getTime())) return undefined;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    if (value instanceof Date) {
+      if (isNaN(value.getTime())) return undefined;
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+      const d = new Date(trimmed);
+      if (isNaN(d.getTime())) return undefined;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+/**
+ * Persist the previous schedule snapshot when an admin/manager changes the
+ * employee's live schedule. Old entry is closed (effectiveTo = today) and a
+ * new active entry is opened (effectiveFrom = today). When no history exists
+ * yet we backfill an entry that covers all dates from the hire date up to
+ * today so past attendance keeps using the schedule that was actually live
+ * at the time.
+ */
+async function archiveScheduleChange(
+  employeeId: string,
+  previousEmployeeData: FirebaseFirestore.DocumentData,
+  newSchedule: { scheduleStart: string | null; scheduleEnd: string | null; dayOff: string | null },
+  updatedBy: string
+): Promise<void> {
+  const previous = {
+    scheduleStart: (previousEmployeeData?.scheduleStart as string | null) ?? null,
+    scheduleEnd: (previousEmployeeData?.scheduleEnd as string | null) ?? null,
+    dayOff: (previousEmployeeData?.dayOff as string | null) ?? null,
+  };
+
+  if (schedulesEqual(previous, newSchedule)) return;
+
+  const today = todayYmd();
+  const historyRef = adminDb
+    .collection('employees')
+    .doc(employeeId)
+    .collection('scheduleHistory');
+
+  const openSnapshot = await historyRef.where('effectiveTo', '==', null).get();
+  const batch = adminDb.batch();
+
+  if (openSnapshot.empty) {
+    const hireYmd = toYmd(previousEmployeeData?.hireDate);
+    const createdYmd = toYmd(previousEmployeeData?.createdAt);
+    const fallbackFrom = hireYmd || createdYmd || today;
+    const effectiveFrom = fallbackFrom <= today ? fallbackFrom : today;
+    batch.set(historyRef.doc(), {
+      scheduleStart: previous.scheduleStart,
+      scheduleEnd: previous.scheduleEnd,
+      dayOff: previous.dayOff,
+      effectiveFrom,
+      effectiveTo: today,
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: updatedBy,
+      backfilled: true,
+    });
+  } else {
+    openSnapshot.forEach((doc) => {
+      batch.update(doc.ref, { effectiveTo: today });
+    });
+  }
+
+  batch.set(historyRef.doc(), {
+    scheduleStart: newSchedule.scheduleStart,
+    scheduleEnd: newSchedule.scheduleEnd,
+    dayOff: newSchedule.dayOff,
+    effectiveFrom: today,
+    effectiveTo: null,
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: updatedBy,
+  });
+
+  await batch.commit();
+}
+
+export async function getScheduleHistory(employeeId: string): Promise<ScheduleHistoryEntry[]> {
+  try {
+    const snap = await adminDb
+      .collection('employees')
+      .doc(employeeId)
+      .collection('scheduleHistory')
+      .orderBy('effectiveFrom', 'asc')
+      .get();
+    return snap.docs.map((doc) => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        scheduleStart: (data.scheduleStart as string | null) ?? null,
+        scheduleEnd: (data.scheduleEnd as string | null) ?? null,
+        dayOff: (data.dayOff as string | null) ?? null,
+        effectiveFrom: (data.effectiveFrom as string) || '',
+        effectiveTo: (data.effectiveTo as string | null) ?? null,
+        createdAt: toISOString(data.createdAt),
+        createdBy: (data.createdBy as string) || undefined,
+      } satisfies ScheduleHistoryEntry;
+    });
+  } catch (error: unknown) {
+    console.error('Get schedule history error:', error);
+    return [];
+  }
 }
 
 function toISOString(value: unknown): string | undefined {
@@ -316,11 +455,43 @@ export async function updateEmployee(
       }
     }
 
+    const scheduleTouched =
+      'scheduleStart' in processedUpdates ||
+      'scheduleEnd' in processedUpdates ||
+      'dayOff' in processedUpdates;
+
+    let employeeBeforeUpdate: FirebaseFirestore.DocumentSnapshot | null = null;
+    if (scheduleTouched) {
+      employeeBeforeUpdate = await adminDb
+        .collection('employees')
+        .doc(employeeId)
+        .get();
+    }
+
     await adminDb.collection('employees').doc(employeeId).update({
       ...processedUpdates,
       updatedAt: FieldValue.serverTimestamp(),
       updatedBy,
     });
+
+    if (scheduleTouched && employeeBeforeUpdate?.exists) {
+      await archiveScheduleChange(
+        employeeId,
+        employeeBeforeUpdate.data() || {},
+        {
+          scheduleStart: ('scheduleStart' in processedUpdates
+            ? (processedUpdates.scheduleStart as string | null)
+            : (employeeBeforeUpdate.data()?.scheduleStart as string | null) ?? null),
+          scheduleEnd: ('scheduleEnd' in processedUpdates
+            ? (processedUpdates.scheduleEnd as string | null)
+            : (employeeBeforeUpdate.data()?.scheduleEnd as string | null) ?? null),
+          dayOff: ('dayOff' in processedUpdates
+            ? (processedUpdates.dayOff as string | null)
+            : (employeeBeforeUpdate.data()?.dayOff as string | null) ?? null),
+        },
+        updatedBy
+      );
+    }
 
     if (updates.email || updates.displayName) {
       const authUpdates: { email?: string; displayName?: string } = {};

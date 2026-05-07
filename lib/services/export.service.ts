@@ -6,6 +6,8 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { Employee, AttendanceRecord, Compensation } from '@/types';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
+import { getScheduleHistory } from './employees.service';
+import { ScheduleHistoryEntry } from '@/lib/schedule-history';
 
 function toISOString(value: unknown): string | undefined {
   if (!value) return undefined;
@@ -27,18 +29,21 @@ export async function exportEmployeeData(employeeId: string): Promise<{
   employee: Employee;
   compensation: Compensation | null;
   attendance: AttendanceRecord[];
+  scheduleHistory: ScheduleHistoryEntry[];
 } | null> {
   try {
-    const [employeeDoc, compensationDoc, attendanceSnapshot] = await Promise.all([
-      adminDb.collection('employees').doc(employeeId).get(),
-      adminDb.collection('compensation').doc(employeeId).get(),
-      adminDb
-        .collection('attendance')
-        .where('employeeId', '==', employeeId)
-        .orderBy('date', 'desc')
-        .limit(365)
-        .get(),
-    ]);
+    const [employeeDoc, compensationDoc, attendanceSnapshot, scheduleHistory] =
+      await Promise.all([
+        adminDb.collection('employees').doc(employeeId).get(),
+        adminDb.collection('compensation').doc(employeeId).get(),
+        adminDb
+          .collection('attendance')
+          .where('employeeId', '==', employeeId)
+          .orderBy('date', 'desc')
+          .limit(365)
+          .get(),
+        getScheduleHistory(employeeId),
+      ]);
 
     if (!employeeDoc.exists) {
       return null;
@@ -111,7 +116,7 @@ export async function exportEmployeeData(employeeId: string): Promise<{
       } as AttendanceRecord;
     });
 
-    return { employee, compensation, attendance };
+    return { employee, compensation, attendance, scheduleHistory };
   } catch (error: unknown) {
     console.error('Export employee data error:', error);
     return null;
@@ -131,6 +136,7 @@ export async function exportAllEmployeesData(): Promise<
     employee: Employee;
     compensation: Compensation | null;
     attendance: AttendanceRecord[];
+    scheduleHistory: ScheduleHistoryEntry[];
   }> | null
 > {
   try {
