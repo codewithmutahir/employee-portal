@@ -172,9 +172,6 @@ function buildMonthlyBreakdown(
     const wd = workingDaysInMonth(year, monthIndex, dayOff);
     const perDay = salaryPerDayForMonth(monthlySalary, year, monthIndex, dayOff);
 
-    // Day-off attendance does not add to base pay (employee can't earn more
-    // than their monthly salary). Only count attendance on scheduled working
-    // days, and cap at the working days in the month as a safety belt.
     const payableAttended = records.filter(
       (r) => recordIsAttended(r) && !isOnDayOff(r, dayOff)
     ).length;
@@ -192,6 +189,10 @@ function buildMonthlyBreakdown(
     };
     for (const r of records) perRecordMeta.set(r, meta);
 
+    // Estimated Wages mirrors the portal's salary slip: the employee's full
+    // monthly salary for any month they have attendance. Per-day rate and
+    // days-attended numbers stay as informational context. Day-by-day
+    // deductions (leaves/late) are tracked separately on the dashboard.
     months.push({
       year,
       monthIndex,
@@ -201,7 +202,7 @@ function buildMonthlyBreakdown(
       workingDaysInMonth: wd,
       monthlySalary,
       perDayRate: perDay,
-      estimatedWages: daysAttended * perDay,
+      estimatedWages: monthlySalary,
       totalHours,
       dayOff,
     });
@@ -271,7 +272,9 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   output += `Total Hours Worked: ${totalHours.toFixed(2)}\n`;
   output += `Average Hours/Day (attended): ${avgHours}\n`;
   output += `Estimated Wages: ${cur} ${totalEstimated.toFixed(2)}\n`;
-  output += `  Formula: Working Days Attended × (Monthly Salary ÷ Working Days in Month)\n`;
+  output += `  Estimated Wages = Monthly Salary for each month with attendance.\n`;
+  output += `  Per-Day Rate (Monthly Salary ÷ Working Days in Month) is shown below for reference;\n`;
+  output += `  per-day deductions (leaves, late, loan) are applied separately on the salary slip.\n`;
   output += '\n';
 
   if (months.length > 0) {
@@ -548,6 +551,9 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
       perDayRate > 0
         ? `${cur} ${perDayRate.toLocaleString()}/day`
         : 'N/A (add monthly salary in compensation)';
+    // Per-row estimated wages stays as informational per-day value (so each
+    // working day shows what it's worth), but it does NOT sum to the total.
+    // The monthly Estimated Wages = Monthly Salary regardless of row count.
     const attended = recordIsAttended(record);
     const onDayOff = isOnDayOff(record, meta?.dayOff);
     const recordEstimated = attended && !onDayOff ? perDayRate : 0;
