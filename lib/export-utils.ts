@@ -42,7 +42,10 @@ interface MonthlyBreakdown {
   year: number;
   monthIndex: number;
   monthLabel: string;
+  /** Days where the employee actually clocked in / had hours, excluding scheduled day-off attendance. */
   daysAttended: number;
+  /** Total physical days with any attendance record (including day-off attendance), kept for context. */
+  daysAttendedRaw: number;
   workingDaysInMonth: number;
   monthlySalary: number;
   perDayRate: number;
@@ -57,6 +60,25 @@ interface MonthMetaForRecord {
   monthlySalary: number;
   monthLabel: string;
   dayOff: string;
+}
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+function isOnDayOff(record: AttendanceRecord, dayOff: string | null | undefined): boolean {
+  if (!dayOff) return false;
+  const d = parseRecordDate(record);
+  if (!d) return false;
+  const idx = WEEKDAY_NAMES.findIndex((name) => name.toLowerCase() === dayOff.toLowerCase());
+  if (idx < 0) return false;
+  return d.getDay() === idx;
 }
 
 function safeFormatDate(
@@ -150,7 +172,14 @@ function buildMonthlyBreakdown(
     const wd = workingDaysInMonth(year, monthIndex, dayOff);
     const perDay = salaryPerDayForMonth(monthlySalary, year, monthIndex, dayOff);
 
-    const daysAttended = records.filter(recordIsAttended).length;
+    // Day-off attendance does not add to base pay (employee can't earn more
+    // than their monthly salary). Only count attendance on scheduled working
+    // days, and cap at the working days in the month as a safety belt.
+    const payableAttended = records.filter(
+      (r) => recordIsAttended(r) && !isOnDayOff(r, dayOff)
+    ).length;
+    const daysAttended = Math.min(payableAttended, wd);
+    const daysAttendedRaw = records.filter(recordIsAttended).length;
     const totalHours = records.reduce((sum, r) => sum + (r.totalHours || 0), 0);
     const monthLabel = `${MONTH_NAMES[monthIndex]} ${year}`;
 
@@ -168,6 +197,7 @@ function buildMonthlyBreakdown(
       monthIndex,
       monthLabel,
       daysAttended,
+      daysAttendedRaw,
       workingDaysInMonth: wd,
       monthlySalary,
       perDayRate: perDay,
@@ -519,7 +549,8 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
         ? `${cur} ${perDayRate.toLocaleString()}/day`
         : 'N/A (add monthly salary in compensation)';
     const attended = recordIsAttended(record);
-    const recordEstimated = attended ? perDayRate : 0;
+    const onDayOff = isOnDayOff(record, meta?.dayOff);
+    const recordEstimated = attended && !onDayOff ? perDayRate : 0;
 
     const attendanceStatus = record.status || '';
     const lateFlag = attendanceStatus === 'Late In' ? 'Late In' : '';
