@@ -10,6 +10,7 @@ import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
 import { resolveUserRole } from '@/lib/roles';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { sendWelcomeEmail } from './email.service';
+import { sendPushToEmployee } from './push.service';
 import {
   ScheduleHistoryEntry,
   schedulesEqual,
@@ -475,22 +476,43 @@ export async function updateEmployee(
     });
 
     if (scheduleTouched && employeeBeforeUpdate?.exists) {
+      const newSchedule = {
+        scheduleStart: ('scheduleStart' in processedUpdates
+          ? (processedUpdates.scheduleStart as string | null)
+          : (employeeBeforeUpdate.data()?.scheduleStart as string | null) ?? null),
+        scheduleEnd: ('scheduleEnd' in processedUpdates
+          ? (processedUpdates.scheduleEnd as string | null)
+          : (employeeBeforeUpdate.data()?.scheduleEnd as string | null) ?? null),
+        dayOff: ('dayOff' in processedUpdates
+          ? (processedUpdates.dayOff as string | null)
+          : (employeeBeforeUpdate.data()?.dayOff as string | null) ?? null),
+      };
       await archiveScheduleChange(
         employeeId,
         employeeBeforeUpdate.data() || {},
-        {
-          scheduleStart: ('scheduleStart' in processedUpdates
-            ? (processedUpdates.scheduleStart as string | null)
-            : (employeeBeforeUpdate.data()?.scheduleStart as string | null) ?? null),
-          scheduleEnd: ('scheduleEnd' in processedUpdates
-            ? (processedUpdates.scheduleEnd as string | null)
-            : (employeeBeforeUpdate.data()?.scheduleEnd as string | null) ?? null),
-          dayOff: ('dayOff' in processedUpdates
-            ? (processedUpdates.dayOff as string | null)
-            : (employeeBeforeUpdate.data()?.dayOff as string | null) ?? null),
-        },
+        newSchedule,
         updatedBy
       );
+
+      // Push-notify the employee whenever an admin/manager touched the live
+      // schedule. The "Schedule Changes" toggle in NotificationSettingsScreen
+      // is honored client-side; the server always sends so an employee can't
+      // accidentally miss a critical shift update.
+      const beforeData = employeeBeforeUpdate.data() || {};
+      const previous = {
+        scheduleStart: (beforeData.scheduleStart as string | null) ?? null,
+        scheduleEnd: (beforeData.scheduleEnd as string | null) ?? null,
+        dayOff: (beforeData.dayOff as string | null) ?? null,
+      };
+      if (!schedulesEqual(previous, newSchedule) && employeeId !== updatedBy) {
+        const fmt = (s: string | null) => s ?? 'default';
+        sendPushToEmployee(employeeId, {
+          title: 'Your schedule was updated',
+          body: `Shift: ${fmt(newSchedule.scheduleStart)}–${fmt(newSchedule.scheduleEnd)} · Day off: ${fmt(newSchedule.dayOff)}`,
+          screen: 'Profile',
+          type: 'schedule-change',
+        }).catch((e) => console.error('[Employees] schedule push failed:', e));
+      }
     }
 
     if (updates.email || updates.displayName) {

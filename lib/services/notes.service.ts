@@ -6,6 +6,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Note } from '@/types';
+import { sendPushToEmployee } from './push.service';
 
 export async function getNotes(
   employeeId: string,
@@ -69,6 +70,17 @@ export async function addNote(
       isInternal,
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    // Notify the employee about a non-internal note (fire-and-forget).
+    // Internal notes are admin-only and must not page the employee.
+    if (!isInternal) {
+      sendPushToEmployee(employeeId, {
+        title: 'New note from your manager',
+        body: content,
+        screen: 'Notes',
+        type: 'note',
+      }).catch((e) => console.error('[Notes] push failed:', e));
+    }
 
     return { success: true };
   } catch (error: unknown) {

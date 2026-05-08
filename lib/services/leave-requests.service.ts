@@ -8,6 +8,7 @@ import type { LeaveRequest, LeaveRequestKind, LeaveRequestSource, LeaveRequestSt
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { getEmployee, getManagementUsers } from '@/lib/services/employees.service';
 import { sendLeaveRequestSubmittedEmail } from '@/lib/services/email.service';
+import { sendPushToEmployee } from '@/lib/services/push.service';
 
 const LEAVE_KINDS: LeaveRequestKind[] = ['monthly', 'emergency', 'paid', 'unpaid'];
 
@@ -249,6 +250,16 @@ export async function decideLeaveRequest(
         adminNote: options?.adminNote?.trim() || null,
         updatedAt: FieldValue.serverTimestamp(),
       });
+      // Notify the employee that their leave request was rejected.
+      sendPushToEmployee(employeeId, {
+        title: 'Leave request rejected',
+        body:
+          options?.adminNote?.trim() ||
+          `Your ${kind} leave from ${startDate} to ${endDate} was not approved.`,
+        screen: 'LeaveRequests',
+        type: 'leave-rejected',
+        extra: { requestId, status: 'rejected' },
+      }).catch((e) => console.error('[Leave] push reject failed:', e));
       return { success: true };
     }
 
@@ -292,6 +303,16 @@ export async function decideLeaveRequest(
         tx.set(compRef, compMerge, { merge: true });
       }
     });
+    // Notify the employee that their leave was approved.
+    sendPushToEmployee(employeeId, {
+      title: 'Leave approved',
+      body:
+        options?.adminNote?.trim() ||
+        `Your ${kind} leave from ${startDate} to ${endDate} was approved.`,
+      screen: 'LeaveRequests',
+      type: 'leave-approved',
+      extra: { requestId, status: 'approved' },
+    }).catch((e) => console.error('[Leave] push approve failed:', e));
     return { success: true };
   } catch (e: unknown) {
     const err = e as Error;
