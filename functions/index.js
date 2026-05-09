@@ -390,3 +390,142 @@ exports.checkAnniversaries = functions.pubsub
     }
   });
 
+function percentChange(previousSalary, newSalary) {
+  if (previousSalary === null || previousSalary === undefined) return null;
+  if (newSalary === null || newSalary === undefined) return null;
+  if (Number(previousSalary) === 0) return null;
+  return Number((((Number(newSalary) - Number(previousSalary)) / Number(previousSalary)) * 100).toFixed(2));
+}
+
+exports.activateCompensationEvents = functions.pubsub
+  .schedule('0 1 * * *')
+  .timeZone('UTC')
+  .onRun(async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    const employeesSnap = await db.collection('employees').get();
+    let activated = 0;
+
+    for (const employeeDoc of employeesSnap.docs) {
+      const employeeRef = db.collection('employees').doc(employeeDoc.id);
+      const historyRef = employeeRef.collection('compensationHistory');
+      const scheduledSnap = await historyRef
+        .where('status', '==', 'scheduled')
+        .where('effectiveDate', '<=', now)
+        .get();
+      if (scheduledSnap.empty) continue;
+
+      const events = scheduledSnap.docs.sort((a, b) => {
+        const da = a.data().effectiveDate?.toDate ? a.data().effectiveDate.toDate() : new Date(0);
+        const dbd = b.data().effectiveDate?.toDate ? b.data().effectiveDate.toDate() : new Date(0);
+        return da.getTime() - dbd.getTime();
+      });
+
+      const latestEvent = events[events.length - 1];
+      const batch = db.batch();
+
+      const activeSnap = await historyRef.where('status', '==', 'active').get();
+      activeSnap.docs.forEach((d) => batch.update(d.ref, {status: 'superseded'}));
+      events.forEach((d) => batch.update(d.ref, {status: d.id === latestEvent.id ? 'active' : 'superseded'}));
+
+      const latest = latestEvent.data();
+      if (latest.newSalary !== null && latest.newSalary !== undefined) {
+        batch.set(
+          db.collection('compensation').doc(employeeDoc.id),
+          {
+            employeeId: employeeDoc.id,
+            salary: Number(latest.newSalary),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedBy: 'scheduled-function',
+          },
+          {merge: true}
+        );
+        batch.set(employeeRef, {currentSalary: Number(latest.newSalary)}, {merge: true});
+      }
+      if (latest.newPosition) {
+        batch.set(
+          employeeRef,
+          {
+            position: latest.newPosition,
+            currentPosition: latest.newPosition,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedBy: 'scheduled-function',
+          },
+          {merge: true}
+        );
+      }
+
+      await batch.commit();
+      activated += 1;
+    }
+    console.log(`[Compensation] Activated events for ${activated} employee(s)`);
+    return null;
+  });
+
+exports.processProbationCompletions = functions.pubsub
+  .schedule('10 1 * * *')
+  .timeZone('UTC')
+  .onRun(async () => {
+    const db = admin.firestore();
+    const now = new Date();
+    const employeesSnap = await db.collection('employees').get();
+    let created = 0;
+
+    for (const doc of employeesSnap.docs) {
+      const data = doc.data() || {};
+      if (!data.probationEndDate || !data.confirmedSalary) continue;
+
+      let probationEnd;
+      if (data.probationEndDate.toDate) probationEnd = data.probationEndDate.toDate();
+      else probationEnd = new Date(data.probationEndDate);
+      if (isNaN(probationEnd.getTime()) || probationEnd > now) continue;
+
+      const historyRef = db.collection('employees').doc(doc.id).collection('compensationHistory');
+      const existing = await historyRef
+        .where('eventType', '==', 'Probation Completion')
+        .where('effectiveDate', '==', data.probationEndDate)
+        .limit(1)
+        .get();
+      if (!existing.empty) continue;
+
+      const currentSalary = data.currentSalary || data.probationSalary || 0;
+      const eventDoc = historyRef.doc();
+      await eventDoc.set({
+        eventType: 'Probation Completion',
+        previousSalary: Number(currentSalary),
+        newSalary: Number(data.confirmedSalary),
+        percentChange: percentChange(Number(currentSalary), Number(data.confirmedSalary)),
+        previousPosition: data.position || null,
+        newPosition: data.position || null,
+        effectiveDate: data.probationEndDate,
+        reason: 'Automatic probation completion',
+        enteredBy: 'scheduled-function',
+        enteredAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'active',
+        isRetroactive: probationEnd < now,
+        isAmended: false,
+        amendsEventId: null,
+      });
+
+      await db.collection('compensation').doc(doc.id).set(
+        {
+          employeeId: doc.id,
+          salary: Number(data.confirmedSalary),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedBy: 'scheduled-function',
+        },
+        {merge: true}
+      );
+      await db.collection('employees').doc(doc.id).set(
+        {
+          currentSalary: Number(data.confirmedSalary),
+          currentPosition: data.position || null,
+        },
+        {merge: true}
+      );
+      created += 1;
+    }
+    console.log(`[Compensation] Created ${created} probation completion event(s)`);
+    return null;
+  });
+

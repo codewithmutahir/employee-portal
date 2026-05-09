@@ -6,7 +6,20 @@
 import { randomBytes } from 'crypto';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { Employee, Compensation, WorkAnniversary, TenureInfo } from '@/types';
+import {
+  Employee,
+  Compensation,
+  CompensationEventStatus,
+  CompensationEventType,
+  CompensationHistoryEvent,
+  EmployeeDateRangeSchedule,
+  EmployeeScheduleDays,
+  EmployeeScheduleStatus,
+  ScheduleRepeatType,
+  ScheduleWeekdayKey,
+  WorkAnniversary,
+  TenureInfo,
+} from '@/types';
 import { resolveUserRole } from '@/lib/roles';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { sendWelcomeEmail } from './email.service';
@@ -15,6 +28,15 @@ import {
   ScheduleHistoryEntry,
   schedulesEqual,
 } from '@/lib/schedule-history';
+import {
+  activeDaysCount,
+  computeScheduleStatus,
+  dominantScheduleForDate,
+  emptyScheduleDays,
+  formatWeekdayLabel,
+  overlappingDays,
+  scheduleRangesOverlap,
+} from '@/lib/employee-schedules';
 
 /** Hire date before local calendar today: only admins may set (blocks managers if update path is opened to them). */
 async function assertCanSetPastHireDate(
@@ -176,6 +198,277 @@ export async function getScheduleHistory(employeeId: string): Promise<ScheduleHi
   }
 }
 
+function toDateOrNull(value: unknown): Date | null {
+  if (!value) return null;
+  try {
+    if (typeof (value as { toDate?: () => Date }).toDate === 'function') {
+      const d = (value as { toDate: () => Date }).toDate();
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+    if (typeof value === 'string') {
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
+}
+
+function parseScheduleDays(value: unknown): EmployeeScheduleDays {
+  const fallback = emptyScheduleDays();
+  const raw = (value || {}) as Record<string, any>;
+  (Object.keys(fallback) as ScheduleWeekdayKey[]).forEach((k) => {
+    const source = raw[k];
+    if (!source || typeof source !== 'object') return;
+    fallback[k] = {
+      active: Boolean(source.active),
+      shiftStart: typeof source.shiftStart === 'string' && source.shiftStart ? source.shiftStart : '09:00',
+      shiftEnd: typeof source.shiftEnd === 'string' && source.shiftEnd ? source.shiftEnd : '18:00',
+    };
+  });
+  return fallback;
+}
+
+function dayOffFromSchedule(days: EmployeeScheduleDays): string | null {
+  const off = (Object.keys(days) as ScheduleWeekdayKey[]).find((k) => !days[k].active);
+  if (!off) return null;
+  return formatWeekdayLabel(off);
+}
+
+function firstActiveShift(days: EmployeeScheduleDays): { start: string | null; end: string | null } {
+  const keys: ScheduleWeekdayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  for (const k of keys) {
+    if (days[k].active) {
+      return { start: days[k].shiftStart, end: days[k].shiftEnd };
+    }
+  }
+  return { start: null, end: null };
+}
+
+function mapScheduleDoc(
+  employeeId: string,
+  doc: FirebaseFirestore.QueryDocumentSnapshot
+): EmployeeDateRangeSchedule {
+  const data = doc.data() || {};
+  const start = toDateOrNull(data.startDate) || new Date();
+  const end = toDateOrNull(data.endDate);
+  const statusStored = (data.status as EmployeeScheduleStatus | undefined) || computeScheduleStatus(start, end);
+  return {
+    scheduleId: (data.scheduleId as string) || doc.id,
+    employeeId,
+    startDate: start.toISOString(),
+    endDate: end ? end.toISOString() : null,
+    days: parseScheduleDays(data.days),
+    repeatType: ((data.repeatType as ScheduleRepeatType) || 'weekly'),
+    notes: (data.notes as string) || '',
+    createdBy: (data.createdBy as string) || '',
+    createdAt: toISOString(data.createdAt) || new Date().toISOString(),
+    status: statusStored,
+  };
+}
+
+async function syncLegacyScheduleFromDateRange(
+  employeeId: string,
+  actorId: string
+): Promise<void> {
+  const employeeRef = adminDb.collection('employees').doc(employeeId);
+  const [employeeSnap, schedules] = await Promise.all([
+    employeeRef.get(),
+    getEmployeeDateRangeSchedules(employeeId),
+  ]);
+  if (!employeeSnap.exists) return;
+  const employeeData = employeeSnap.data() || {};
+
+  const dominant = dominantScheduleForDate(schedules, new Date());
+  const previous = {
+    scheduleStart: (employeeData.scheduleStart as string | null) ?? null,
+    scheduleEnd: (employeeData.scheduleEnd as string | null) ?? null,
+    dayOff: (employeeData.dayOff as string | null) ?? null,
+  };
+
+  const derivedShift = dominant ? firstActiveShift(dominant.days) : { start: null, end: null };
+  const derived = {
+    scheduleStart: derivedShift.start,
+    scheduleEnd: derivedShift.end,
+    dayOff: dominant ? dayOffFromSchedule(dominant.days) : null,
+  };
+
+  if (schedulesEqual(previous, derived)) return;
+
+  await employeeRef.set(
+    {
+      scheduleStart: derived.scheduleStart,
+      scheduleEnd: derived.scheduleEnd,
+      dayOff: derived.dayOff,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: actorId,
+    },
+    { merge: true }
+  );
+  await archiveScheduleChange(employeeId, employeeData, derived, actorId);
+}
+
+export async function getEmployeeDateRangeSchedules(
+  employeeId: string
+): Promise<EmployeeDateRangeSchedule[]> {
+  try {
+    const schedulesRef = adminDb.collection('employees').doc(employeeId).collection('schedules');
+    const snap = await schedulesRef.orderBy('startDate', 'desc').get();
+    const list = snap.docs.map((doc) => mapScheduleDoc(employeeId, doc));
+
+    const batch = adminDb.batch();
+    let changed = 0;
+    for (const doc of snap.docs) {
+      const data = doc.data() || {};
+      const start = toDateOrNull(data.startDate) || new Date();
+      const end = toDateOrNull(data.endDate);
+      const expected = computeScheduleStatus(start, end);
+      const stored = (data.status as EmployeeScheduleStatus | undefined) || expected;
+      if (stored !== expected) {
+        batch.set(doc.ref, { status: expected }, { merge: true });
+        changed += 1;
+      }
+    }
+    if (changed > 0) {
+      await batch.commit();
+      return list.map((s) => ({ ...s, status: computeScheduleStatus(new Date(s.startDate), s.endDate ? new Date(s.endDate) : null) }));
+    }
+    return list;
+  } catch (error: unknown) {
+    console.error('Get date range schedules error:', error);
+    return [];
+  }
+}
+
+export async function createEmployeeDateRangeSchedule(
+  employeeId: string,
+  scheduleInput: {
+    startDate: string;
+    endDate?: string | null;
+    days: EmployeeScheduleDays;
+    repeatType: ScheduleRepeatType;
+    notes?: string;
+    forceOverride?: boolean;
+  },
+  createdBy: string
+): Promise<{ success: boolean; error?: string; scheduleId?: string; conflictMessage?: string }> {
+  try {
+    const startDate = toDateOrNull(scheduleInput.startDate);
+    const endDate = toDateOrNull(scheduleInput.endDate ?? null);
+    if (!startDate) return { success: false, error: 'Start date is required.' };
+    if (endDate && endDate < startDate) {
+      return { success: false, error: 'End date cannot be before start date.' };
+    }
+    if (activeDaysCount(scheduleInput.days) === 0) {
+      return { success: false, error: 'Select at least one active day.' };
+    }
+
+    const existing = await getEmployeeDateRangeSchedules(employeeId);
+    const overlap = existing.find((s) => {
+      if (!scheduleRangesOverlap(startDate, endDate || null, new Date(s.startDate), s.endDate ? new Date(s.endDate) : null)) {
+        return false;
+      }
+      const sameDays = overlappingDays(scheduleInput.days, s.days);
+      return sameDays.length > 0 && (s.status === 'active' || s.status === 'upcoming');
+    });
+
+    if (overlap && !scheduleInput.forceOverride) {
+      const days = overlappingDays(scheduleInput.days, overlap.days).map(formatWeekdayLabel).join(', ');
+      const message = `Conflict detected with schedule from ${new Date(overlap.startDate).toLocaleDateString()} to ${
+        overlap.endDate ? new Date(overlap.endDate).toLocaleDateString() : 'open-ended'
+      } on ${days}.`;
+      return { success: false, error: message, conflictMessage: message };
+    }
+
+    const ref = adminDb.collection('employees').doc(employeeId).collection('schedules').doc();
+    const status = computeScheduleStatus(startDate, endDate);
+    await ref.set({
+      scheduleId: ref.id,
+      startDate: Timestamp.fromDate(startDate),
+      endDate: endDate ? Timestamp.fromDate(endDate) : null,
+      days: scheduleInput.days,
+      repeatType: scheduleInput.repeatType,
+      notes: scheduleInput.notes || '',
+      createdBy,
+      createdAt: FieldValue.serverTimestamp(),
+      status,
+    });
+    await syncLegacyScheduleFromDateRange(employeeId, createdBy);
+    return { success: true, scheduleId: ref.id };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Create date range schedule error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function updateEmployeeDateRangeSchedule(
+  employeeId: string,
+  scheduleId: string,
+  updates: {
+    startDate?: string;
+    endDate?: string | null;
+    days?: EmployeeScheduleDays;
+    repeatType?: ScheduleRepeatType;
+    notes?: string;
+    forceOverride?: boolean;
+  },
+  updatedBy: string
+): Promise<{ success: boolean; error?: string; conflictMessage?: string }> {
+  try {
+    const ref = adminDb.collection('employees').doc(employeeId).collection('schedules').doc(scheduleId);
+    const snap = await ref.get();
+    if (!snap.exists) return { success: false, error: 'Schedule not found.' };
+    const current = mapScheduleDoc(employeeId, snap as FirebaseFirestore.QueryDocumentSnapshot);
+
+    const nextStart = updates.startDate ? toDateOrNull(updates.startDate) : new Date(current.startDate);
+    const nextEnd =
+      updates.endDate !== undefined
+        ? toDateOrNull(updates.endDate)
+        : (current.endDate ? new Date(current.endDate) : null);
+    if (!nextStart) return { success: false, error: 'Invalid start date.' };
+    if (nextEnd && nextEnd < nextStart) return { success: false, error: 'End date cannot be before start date.' };
+    const nextDays = updates.days || current.days;
+
+    const existing = await getEmployeeDateRangeSchedules(employeeId);
+    const overlap = existing.find((s) => {
+      if (s.scheduleId === scheduleId) return false;
+      if (!scheduleRangesOverlap(nextStart, nextEnd || null, new Date(s.startDate), s.endDate ? new Date(s.endDate) : null)) {
+        return false;
+      }
+      const sameDays = overlappingDays(nextDays, s.days);
+      return sameDays.length > 0 && (s.status === 'active' || s.status === 'upcoming');
+    });
+    if (overlap && !updates.forceOverride) {
+      const days = overlappingDays(nextDays, overlap.days).map(formatWeekdayLabel).join(', ');
+      const message = `Conflict detected with schedule from ${new Date(overlap.startDate).toLocaleDateString()} to ${
+        overlap.endDate ? new Date(overlap.endDate).toLocaleDateString() : 'open-ended'
+      } on ${days}.`;
+      return { success: false, error: message, conflictMessage: message };
+    }
+
+    const payload: Record<string, unknown> = {
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy,
+      status: computeScheduleStatus(nextStart, nextEnd),
+    };
+    if (updates.startDate !== undefined) payload.startDate = Timestamp.fromDate(nextStart);
+    if (updates.endDate !== undefined) payload.endDate = nextEnd ? Timestamp.fromDate(nextEnd) : null;
+    if (updates.days !== undefined) payload.days = nextDays;
+    if (updates.repeatType !== undefined) payload.repeatType = updates.repeatType;
+    if (updates.notes !== undefined) payload.notes = updates.notes;
+    await ref.set(payload, { merge: true });
+    await syncLegacyScheduleFromDateRange(employeeId, updatedBy);
+    return { success: true };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Update date range schedule error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 function toISOString(value: unknown): string | undefined {
   if (!value) return undefined;
   try {
@@ -239,6 +532,20 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
       bio: data?.bio,
       profilePhotoUrl: data?.profilePhotoUrl,
       notificationPreferences: data?.notificationPreferences,
+      currentSalary:
+        data?.currentSalary === undefined || data?.currentSalary === null
+          ? undefined
+          : Number(data.currentSalary),
+      currentPosition: data?.currentPosition,
+      probationSalary:
+        data?.probationSalary === undefined || data?.probationSalary === null
+          ? undefined
+          : Number(data.probationSalary),
+      confirmedSalary:
+        data?.confirmedSalary === undefined || data?.confirmedSalary === null
+          ? undefined
+          : Number(data.confirmedSalary),
+      probationEndDate: toISOString(data?.probationEndDate),
     } as Employee;
   } catch (error: unknown) {
     console.error('Get employee error:', error);
@@ -273,6 +580,20 @@ export async function getAllEmployees(
         scheduleStart: data?.scheduleStart,
         scheduleEnd: data?.scheduleEnd,
         dayOff: data?.dayOff,
+        currentSalary:
+          data?.currentSalary === undefined || data?.currentSalary === null
+            ? undefined
+            : Number(data.currentSalary),
+        currentPosition: data?.currentPosition,
+        probationSalary:
+          data?.probationSalary === undefined || data?.probationSalary === null
+            ? undefined
+            : Number(data.probationSalary),
+        confirmedSalary:
+          data?.confirmedSalary === undefined || data?.confirmedSalary === null
+            ? undefined
+            : Number(data.confirmedSalary),
+        probationEndDate: toISOString(data?.probationEndDate),
       } as Employee;
     });
   } catch (error: unknown) {
@@ -326,6 +647,9 @@ export async function createEmployee(
     scheduleStart?: string;
     scheduleEnd?: string;
     dayOff?: string;
+    probationSalary?: number;
+    confirmedSalary?: number;
+    probationEndDate?: string;
   },
   createdBy: string
 ): Promise<{ success: boolean; userId?: string; error?: string }> {
@@ -352,7 +676,7 @@ export async function createEmployee(
       emailVerified: false,
     });
 
-    await adminDb.collection('employees').doc(userRecord.uid).set({
+    const employeeDoc: Record<string, unknown> = {
       email: data.email,
       displayName: data.displayName,
       role: data.role,
@@ -370,7 +694,21 @@ export async function createEmployee(
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       createdBy,
-    });
+    };
+    if (data.probationSalary != null && !Number.isNaN(Number(data.probationSalary))) {
+      employeeDoc.probationSalary = Number(data.probationSalary);
+    }
+    if (data.confirmedSalary != null && !Number.isNaN(Number(data.confirmedSalary))) {
+      employeeDoc.confirmedSalary = Number(data.confirmedSalary);
+    }
+    if (data.probationEndDate) {
+      const ped = new Date(data.probationEndDate);
+      if (!Number.isNaN(ped.getTime())) {
+        employeeDoc.probationEndDate = Timestamp.fromDate(ped);
+      }
+    }
+
+    await adminDb.collection('employees').doc(userRecord.uid).set(employeeDoc);
 
     return { success: true, userId: userRecord.uid };
   } catch (error: unknown) {
@@ -429,6 +767,9 @@ export async function updateEmployee(
   updates: Partial<Employee> & {
     dateOfBirth?: string;
     hireDate?: string;
+    probationSalary?: number | null;
+    confirmedSalary?: number | null;
+    probationEndDate?: string | null;
   },
   updatedBy: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -453,6 +794,36 @@ export async function updateEmployee(
     for (const key of ['scheduleStart', 'scheduleEnd', 'dayOff'] as const) {
       if (key in processedUpdates && processedUpdates[key] === '') {
         processedUpdates[key] = null;
+      }
+    }
+
+    if ('probationSalary' in processedUpdates) {
+      const v = processedUpdates.probationSalary;
+      if (v === '' || v === null || v === undefined) {
+        processedUpdates.probationSalary = FieldValue.delete();
+      } else {
+        const n = Number(v);
+        processedUpdates.probationSalary = Number.isFinite(n) ? n : FieldValue.delete();
+      }
+    }
+    if ('confirmedSalary' in processedUpdates) {
+      const v = processedUpdates.confirmedSalary;
+      if (v === '' || v === null || v === undefined) {
+        processedUpdates.confirmedSalary = FieldValue.delete();
+      } else {
+        const n = Number(v);
+        processedUpdates.confirmedSalary = Number.isFinite(n) ? n : FieldValue.delete();
+      }
+    }
+    if ('probationEndDate' in processedUpdates) {
+      const v = processedUpdates.probationEndDate;
+      if (v === '' || v === null || v === undefined) {
+        processedUpdates.probationEndDate = FieldValue.delete();
+      } else {
+        const d = new Date(String(v));
+        processedUpdates.probationEndDate = Number.isNaN(d.getTime())
+          ? FieldValue.delete()
+          : Timestamp.fromDate(d);
       }
     }
 
@@ -608,6 +979,260 @@ export async function getCompensation(
   } catch (error: unknown) {
     console.error('Get compensation error:', error);
     return null;
+  }
+}
+
+function parseIsoToDate(value: string): Date | null {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function calculatePercentChange(
+  previousSalary: number | null,
+  newSalary: number | null
+): number | null {
+  if (previousSalary == null || newSalary == null || previousSalary === 0) return null;
+  return Number((((newSalary - previousSalary) / previousSalary) * 100).toFixed(2));
+}
+
+/** UTC calendar day [start, end) for overlap queries on `effectiveDate` timestamps. */
+function utcDayBounds(d: Date): { start: Date; end: Date } {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const start = new Date(Date.UTC(y, m, day));
+  const end = new Date(Date.UTC(y, m, day + 1));
+  return { start, end };
+}
+
+export async function getCompensationHistory(
+  employeeId: string
+): Promise<CompensationHistoryEvent[]> {
+  try {
+    const snap = await adminDb
+      .collection('employees')
+      .doc(employeeId)
+      .collection('compensationHistory')
+      .orderBy('effectiveDate', 'desc')
+      .get();
+    return snap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        employeeId,
+        eventType: (data.eventType as CompensationEventType) || 'Merit Increase',
+        previousSalary:
+          data.previousSalary === null || data.previousSalary === undefined
+            ? null
+            : Number(data.previousSalary),
+        newSalary:
+          data.newSalary === null || data.newSalary === undefined
+            ? null
+            : Number(data.newSalary),
+        percentChange:
+          data.percentChange === null || data.percentChange === undefined
+            ? null
+            : Number(data.percentChange),
+        previousPosition: (data.previousPosition as string | null) ?? null,
+        newPosition: (data.newPosition as string | null) ?? null,
+        effectiveDate: toISOString(data.effectiveDate) || new Date().toISOString(),
+        reason: (data.reason as string | null) ?? null,
+        enteredBy: (data.enteredBy as string) || '',
+        enteredAt: toISOString(data.enteredAt) || new Date().toISOString(),
+        status: (data.status as CompensationEventStatus) || 'scheduled',
+        isRetroactive: Boolean(data.isRetroactive),
+        isAmended: Boolean(data.isAmended),
+        amendsEventId: (data.amendsEventId as string | null) ?? null,
+      } as CompensationHistoryEvent;
+    });
+  } catch (error: unknown) {
+    console.error('Get compensation history error:', error);
+    return [];
+  }
+}
+
+export async function addCompensationEvent(
+  employeeId: string,
+  eventInput: {
+    eventType: CompensationEventType;
+    newSalary: number | null;
+    newPosition?: string | null;
+    effectiveDate: string;
+    reason?: string | null;
+    amendsEventId?: string | null;
+    /** Allow a second event on the same calendar day (otherwise blocked if one is scheduled/active). */
+    forceSameDayOverride?: boolean;
+  },
+  enteredBy: string
+): Promise<{ success: boolean; error?: string; eventId?: string }> {
+  try {
+    const effectiveDate = parseIsoToDate(eventInput.effectiveDate);
+    if (!effectiveDate) return { success: false, error: 'Invalid effective date.' };
+
+    const employeeRef = adminDb.collection('employees').doc(employeeId);
+    const compensationRef = adminDb.collection('compensation').doc(employeeId);
+    const historyRef = employeeRef.collection('compensationHistory').doc();
+
+    await adminDb.runTransaction(async (tx) => {
+      const [employeeSnap, compensationSnap] = await Promise.all([
+        tx.get(employeeRef),
+        tx.get(compensationRef),
+      ]);
+      if (!employeeSnap.exists) throw new Error('Employee not found');
+
+      const employeeData = employeeSnap.data() || {};
+      const compensationData = compensationSnap.data() || {};
+      const now = new Date();
+      const previousSalary =
+        compensationData.salary === undefined || compensationData.salary === null
+          ? null
+          : Number(compensationData.salary);
+      const previousPosition = (employeeData.position as string | null) ?? null;
+      const newPosition = eventInput.newPosition ?? previousPosition;
+      const status: CompensationEventStatus = effectiveDate <= now ? 'active' : 'scheduled';
+
+      if (eventInput.eventType === 'Demotion' && !eventInput.reason?.trim()) {
+        throw new Error('Reason is required for demotion.');
+      }
+
+      // Same-day overlap: block if another scheduled or active event exists for this UTC day (unless amending or override).
+      if (
+        !eventInput.forceSameDayOverride &&
+        !eventInput.amendsEventId
+      ) {
+        const { start, end } = utcDayBounds(effectiveDate);
+        const startTs = Timestamp.fromDate(start);
+        const endTs = Timestamp.fromDate(end);
+        const daySnap = await tx.get(
+          employeeRef
+            .collection('compensationHistory')
+            .where('effectiveDate', '>=', startTs)
+            .where('effectiveDate', '<', endTs)
+        );
+        const conflicting = daySnap.docs.filter((doc) => {
+          const st = (doc.data().status as CompensationEventStatus) || '';
+          return st === 'scheduled' || st === 'active';
+        });
+        if (conflicting.length > 0) {
+          throw new Error(
+            'Another compensation event is already scheduled or active for this date. Pick a different date or check "Allow same-day override".'
+          );
+        }
+      }
+
+      const eventData = {
+        eventType: eventInput.eventType,
+        previousSalary,
+        newSalary: eventInput.newSalary,
+        percentChange: calculatePercentChange(previousSalary, eventInput.newSalary),
+        previousPosition,
+        newPosition,
+        effectiveDate: Timestamp.fromDate(effectiveDate),
+        reason: eventInput.reason?.trim() ? eventInput.reason.trim() : null,
+        enteredBy,
+        enteredAt: FieldValue.serverTimestamp(),
+        status,
+        isRetroactive: effectiveDate < now,
+        isAmended: Boolean(eventInput.amendsEventId),
+        amendsEventId: eventInput.amendsEventId ?? null,
+      };
+      tx.set(historyRef, eventData);
+
+      if (status === 'active') {
+        const historyQuery = employeeRef
+          .collection('compensationHistory')
+          .where('status', '==', 'active');
+        const activeSnap = await tx.get(historyQuery);
+        activeSnap.docs.forEach((doc) => {
+          if (doc.id === historyRef.id) return;
+          tx.update(doc.ref, { status: 'superseded' });
+        });
+
+        if (eventInput.newSalary !== null) {
+          tx.set(
+            compensationRef,
+            {
+              employeeId,
+              salary: eventInput.newSalary,
+              updatedAt: FieldValue.serverTimestamp(),
+              updatedBy: enteredBy,
+            },
+            { merge: true }
+          );
+          tx.set(
+            employeeRef,
+            {
+              currentSalary: eventInput.newSalary,
+            },
+            { merge: true }
+          );
+        }
+        if (newPosition) {
+          tx.set(
+            employeeRef,
+            {
+              position: newPosition,
+              currentPosition: newPosition,
+              updatedAt: FieldValue.serverTimestamp(),
+              updatedBy: enteredBy,
+            },
+            { merge: true }
+          );
+        }
+      }
+
+      if (eventInput.amendsEventId) {
+        const amendedRef = employeeRef.collection('compensationHistory').doc(eventInput.amendsEventId);
+        tx.set(
+          amendedRef,
+          {
+            isAmended: true,
+            status: 'superseded',
+          },
+          { merge: true }
+        );
+      }
+    });
+
+    return { success: true, eventId: historyRef.id };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Add compensation event error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function createBulkColaAdjustment(
+  employeeIds: string[],
+  percentage: number,
+  effectiveDate: string,
+  reason: string | null | undefined,
+  enteredBy: string
+): Promise<{ success: boolean; error?: string; created: number }> {
+  try {
+    if (!employeeIds.length) return { success: false, error: 'No employees selected.', created: 0 };
+    let created = 0;
+    for (const employeeId of employeeIds) {
+      const comp = await getCompensation(employeeId);
+      const baseSalary = comp?.salary ?? 0;
+      const newSalary = Number((baseSalary * (1 + percentage / 100)).toFixed(2));
+      const result = await addCompensationEvent(
+        employeeId,
+        {
+          eventType: 'COLA Adjustment',
+          newSalary,
+          effectiveDate,
+          reason: reason || `COLA ${percentage}%`,
+        },
+        enteredBy
+      );
+      if (result.success) created += 1;
+    }
+    return { success: true, created };
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Bulk COLA error:', err);
+    return { success: false, error: err.message, created: 0 };
   }
 }
 

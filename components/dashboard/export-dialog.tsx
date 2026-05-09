@@ -8,9 +8,10 @@ import {
   formatEmployeeDataForPrint,
   formatEmployeeDataAsTimecardCSV,
   formatAllEmployeesDataAsTimecardCSV,
+  formatLateReportCSV,
 } from '@/lib/export-utils';
 import { useToast } from '@/components/ui/use-toast';
-import { Printer, FileText, FileSpreadsheet, Calendar, ChevronDown } from 'lucide-react';
+import { Printer, FileText, FileSpreadsheet, Calendar, ChevronDown, AlertTriangle } from 'lucide-react';
 import type { Employee, Compensation, AttendanceRecord } from '@/types';
 import type { ScheduleHistoryEntry } from '@/lib/schedule-history';
 
@@ -255,6 +256,80 @@ export function ExportDialog({ employeeId, employeeName, requestedByEmployeeId }
     }
   }
 
+  async function handleLateReportSingle() {
+    if (!employeeId || !requestedByEmployeeId) {
+      toast({ title: 'Error', description: 'Missing employee or session', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = (await ensureDataLoaded()) as ExportData | null;
+      if (!data) throw new Error('No data returned from server');
+
+      const filtered = applyMonthFilter(data);
+      if (filtered.attendance.length === 0 && selectedMonths.size > 0) {
+        toast({
+          title: 'No data for selected months',
+          description: 'Pick at least one month with attendance, or clear the filter.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const formatted = formatLateReportCSV([filtered]);
+      const safeName = employeeName?.replace(/\s+/g, '_') || 'employee';
+      const suffix = filenameSuffix();
+      downloadBlob(formatted, `${safeName}_late_report_${suffix}.csv`, 'text/csv');
+      toast({
+        title: 'Late report ready',
+        description: `${safeName}_late_report_${suffix}.csv has been downloaded`,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to export late report';
+      toast({ title: 'Export failed', description: message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLateReportAll() {
+    if (!requestedByEmployeeId) {
+      toast({ title: 'Error', description: 'Missing session', variant: 'destructive' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = (await ensureDataLoaded()) as ExportData[] | null;
+      if (!data || data.length === 0) throw new Error('No data available or no employees found');
+
+      const filtered = applyMonthFilterAll(data);
+      const totalRecords = filtered.reduce((sum, e) => sum + e.attendance.length, 0);
+      if (totalRecords === 0 && selectedMonths.size > 0) {
+        toast({
+          title: 'No data for selected months',
+          description: 'No employees have attendance in the chosen months.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const formatted = formatLateReportCSV(filtered);
+      const suffix = filenameSuffix();
+      downloadBlob(formatted, `all_employees_late_report_${suffix}.csv`, 'text/csv');
+      toast({
+        title: 'Late report ready',
+        description: `Downloaded all-employees late report (${filtered.length} profiles)`,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to export late report';
+      toast({ title: 'Export failed', description: message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleExportAll(format: 'txt' | 'csv') {
     if (!requestedByEmployeeId) {
       toast({ title: 'Error', description: 'Missing session', variant: 'destructive' });
@@ -466,6 +541,16 @@ export function ExportDialog({ employeeId, employeeName, requestedByEmployeeId }
             </>
           )}
         </Button>
+        <Button variant="outline" size="sm" onClick={handleLateReportSingle} disabled={loading}>
+          {loading ? (
+            <LoadingSpinner label="Exporting" />
+          ) : (
+            <>
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Late Report
+            </>
+          )}
+        </Button>
         <Button variant="outline" size="sm" onClick={handlePrintSingle} disabled={loading}>
           {loading ? (
             <LoadingSpinner label="Preparing" />
@@ -500,6 +585,16 @@ export function ExportDialog({ employeeId, employeeName, requestedByEmployeeId }
           <>
             <FileSpreadsheet className="mr-2 h-4 w-4" />
             Export All CSV
+          </>
+        )}
+      </Button>
+      <Button variant="outline" size="sm" onClick={handleLateReportAll} disabled={loading}>
+        {loading ? (
+          <LoadingSpinner label="Exporting" />
+        ) : (
+          <>
+            <AlertTriangle className="mr-2 h-4 w-4" />
+            Late Report (All)
           </>
         )}
       </Button>

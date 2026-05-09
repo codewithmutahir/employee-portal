@@ -1,8 +1,23 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Employee, AttendanceRecord, Compensation, Note, Issue, IssueStatus, LeaveRequest, LeaveRequestKind } from '@/types';
+import {
+  Employee,
+  AttendanceRecord,
+  Compensation,
+  CompensationEventType,
+  CompensationHistoryEvent,
+  EmployeeDateRangeSchedule,
+  EmployeeScheduleDays,
+  ScheduleWeekdayKey,
+  Note,
+  Issue,
+  IssueStatus,
+  LeaveRequest,
+  LeaveRequestKind,
+} from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +26,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import type { WorkAnniversary } from '@/types';
-import { getAllEmployees, getCompensation, updateCompensation, updateLeaveBalance, getUpcomingBirthdays, getAllDepartments, getEmployeesByDepartment, updateEmployee, createEmployee, deleteEmployee, getUpcomingAnniversaries, getTenureStatistics, resendCredentials } from '@/app/actions/employees';
+import {
+  getEmployee,
+  getAllEmployees,
+  getCompensation,
+  updateCompensation,
+  updateLeaveBalance,
+  getUpcomingBirthdays,
+  getAllDepartments,
+  getEmployeesByDepartment,
+  updateEmployee,
+  createEmployee,
+  deleteEmployee,
+  getUpcomingAnniversaries,
+  getTenureStatistics,
+  resendCredentials,
+  getCompensationHistory,
+  addCompensationEvent,
+  getEmployeeDateRangeSchedules,
+  createEmployeeDateRangeSchedule,
+  updateEmployeeDateRangeSchedule,
+} from '@/app/actions/employees';
 import { getPendingLeaveRequestsForStaff, staffDecideLeaveRequest, staffCreateUnplannedLeave } from '@/app/actions/leaves';
 import { sendWelcomeEmail, sendNotificationEmail, sendTerminationEmail, sendReactivationEmail, sendCompensationUpdateEmail, sendProfileUpdateEmail } from '@/app/actions/email';
 import { calculateTenure } from '@/lib/utils';
@@ -20,13 +55,22 @@ import { getDepartmentAttendanceStats, getWorkforceInsights } from '@/app/action
 import { getNotes, addNote, deleteNote } from '@/app/actions/notes';
 import { getIssues, updateIssueStatus } from '@/app/actions/issues';
 import { useToast } from '@/components/ui/use-toast';
-import { formatDate, formatTime, formatScheduleHm, toDateTimeLocalValue, dateTimeLocalToISO } from '@/lib/utils';
+import { formatDate, formatTime, formatScheduleHm, toDateTimeLocalValue, dateTimeLocalToISO, cn } from '@/lib/utils';
 import { workingDaysInMonth, salaryPerDayForMonth } from '@/lib/payroll-helpers';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
-import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle, ClipboardList } from 'lucide-react';
+import { SCHEDULE_WEEKDAYS, emptyScheduleDays, formatWeekdayLabel } from '@/lib/employee-schedules';
+import { Users, DollarSign, Calendar, FileText, Edit, Plus, BarChart3, TrendingUp, PieChart, CheckCircle, Clock, Trash2, Pencil, Award, Cake, Star, Trophy, Gem, Medal, Send, Megaphone, KeyRound, AlertCircle, ClipboardList, ChevronDown } from 'lucide-react';
 import { Announcements } from './announcements';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExportDialog } from './export-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { LineChart, Line, XAxis, Legend, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart as RechartsPieChart, Cell, Pie } from 'recharts';
 
 interface ManagementDashboardProps {
@@ -42,17 +86,6 @@ const WEEKDAY_OPTIONS = [
   'Friday',
   'Saturday',
 ] as const;
-
-/** Quick shift templates; times are HH:mm (local) for lateness vs schedule start. */
-const SHIFT_PRESETS: { id: string; label: string; start: string; end: string }[] = [
-  { id: 'custom', label: 'Custom — set fields below', start: '', end: '' },
-  { id: 'office-9-6', label: 'Office · 09:00 – 18:00', start: '09:00', end: '18:00' },
-  { id: 'early-8-5', label: 'Early · 08:00 – 17:00', start: '08:00', end: '17:00' },
-  { id: 'late-10-7', label: 'Late start · 10:00 – 19:00', start: '10:00', end: '19:00' },
-  { id: 'half-9-2', label: 'Half day · 09:00 – 14:00', start: '09:00', end: '14:00' },
-  { id: 'evening-14-22', label: 'Evening · 14:00 – 22:00', start: '14:00', end: '22:00' },
-  { id: 'overnight-22-6', label: 'Overnight · 22:00 – 06:00', start: '22:00', end: '06:00' },
-];
 
 export default function ManagementDashboard({ employee }: ManagementDashboardProps) {
   const isAdmin = employee.role === 'admin';
@@ -112,6 +145,18 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     leaveBalance: '',
     currency: DEFAULT_CURRENCY,
   });
+  const [compensationHistory, setCompensationHistory] = useState<CompensationHistoryEvent[]>([]);
+  const [compEventDialogOpen, setCompEventDialogOpen] = useState(false);
+  const [compEventSaving, setCompEventSaving] = useState(false);
+  const [compEventForm, setCompEventForm] = useState({
+    eventType: 'Merit Increase' as CompensationEventType,
+    newSalary: '',
+    newPosition: '',
+    effectiveDate: new Date().toISOString().split('T')[0] || '',
+    reason: '',
+    amendsEventId: '',
+    forceSameDayOverride: false,
+  });
 
   // Attendance edit form state (kept intentionally lightweight)
   const [attForm, setAttForm] = useState({
@@ -141,6 +186,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     scheduleStart: '09:00',
     scheduleEnd: '18:00',
     dayOff: 'Sunday',
+    probationSalary: '',
+    confirmedSalary: '',
+    probationEndDate: '',
   });
   const [addEmployeeLoading, setAddEmployeeLoading] = useState(false);
 
@@ -155,16 +203,34 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     phoneNumber: '',
     dateOfBirth: '',
     hireDate: '',
+    probationSalary: '',
+    confirmedSalary: '',
+    probationEndDate: '',
   });
   const [editEmployeeLoading, setEditEmployeeLoading] = useState(false);
 
-  const [scheduleDraft, setScheduleDraft] = useState({
-    scheduleStart: '',
-    scheduleEnd: '',
-    dayOff: 'Sunday',
-  });
-  const [schedulePreset, setSchedulePreset] = useState<string>('custom');
+  const [employeeSchedules, setEmployeeSchedules] = useState<EmployeeDateRangeSchedule[]>([]);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleConflictWarning, setScheduleConflictWarning] = useState<string | null>(null);
+  const [showExpiredSchedules, setShowExpiredSchedules] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState<{
+    startDate: string;
+    endDate: string;
+    openEnded: boolean;
+    repeatType: 'weekly' | 'custom';
+    notes: string;
+    forceOverride: boolean;
+    days: EmployeeScheduleDays;
+  }>({
+    startDate: new Date().toISOString().split('T')[0] || '',
+    endDate: '',
+    openEnded: true,
+    repeatType: 'weekly',
+    notes: '',
+    forceOverride: false,
+    days: emptyScheduleDays(),
+  });
 
   const [pendingLeaves, setPendingLeaves] = useState<LeaveRequest[]>([]);
   const [leavesLoading, setLeavesLoading] = useState(false);
@@ -288,12 +354,16 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     if (!selectedEmployee) return;
     setLoading(true);
     try {
-      const [comp, notesData] = await Promise.all([
+      const [comp, notesData, history, schedules] = await Promise.all([
         getCompensation(selectedEmployee.id),
         getNotes(selectedEmployee.id, employee.id, true),
+        getCompensationHistory(selectedEmployee.id, employee.id),
+        getEmployeeDateRangeSchedules(selectedEmployee.id, employee.id),
       ]);
       setCompensation(comp);
       setNotes(notesData);
+      setCompensationHistory(history);
+      setEmployeeSchedules(schedules);
       if (comp) {
         setCompForm({
           salary: comp.salary.toString(),
@@ -405,19 +475,24 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   useEffect(() => {
     if (!selectedEmployee) return;
-    setScheduleDraft({
-      scheduleStart: selectedEmployee.scheduleStart || '',
-      scheduleEnd: selectedEmployee.scheduleEnd || '',
-      dayOff: selectedEmployee.dayOff || 'Sunday',
+    setScheduleForm({
+      startDate: new Date().toISOString().split('T')[0] || '',
+      endDate: '',
+      openEnded: true,
+      repeatType: 'weekly',
+      notes: '',
+      forceOverride: false,
+      days: emptyScheduleDays(),
     });
-    setSchedulePreset('custom');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset draft when this employee or their saved schedule fields change
-  }, [selectedEmployee?.id, selectedEmployee?.scheduleStart, selectedEmployee?.scheduleEnd, selectedEmployee?.dayOff]);
+    setScheduleConflictWarning(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset schedule modal form only when selected employee id changes
+  }, [selectedEmployee?.id]);
 
   useEffect(() => {
     if (!selectedEmployee) return;
     const d = new Date().toISOString().split('T')[0];
     setUnplannedLeave({ startDate: d, endDate: d, reason: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset unplanned leave only when selected employee id changes
   }, [selectedEmployee?.id]);
 
   /** Load attendance for a given date. Pass date when calling from date picker so the selected date is used (state may not have updated yet). */
@@ -569,6 +644,68 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         description: 'Failed to update compensation',
         variant: 'destructive',
       });
+    }
+  }
+
+  const compEventPercentPreview = (() => {
+    const current = compensation?.salary ?? 0;
+    const next = parseFloat(compEventForm.newSalary);
+    if (!Number.isFinite(next) || current === 0) return null;
+    return (((next - current) / current) * 100).toFixed(2);
+  })();
+
+  async function handleCreateCompEvent() {
+    if (!selectedEmployee) return;
+    const effectiveDate = compEventForm.effectiveDate?.trim();
+    if (!effectiveDate) {
+      toast({ title: 'Effective date required', variant: 'destructive' });
+      return;
+    }
+    const parsedSalary = compEventForm.newSalary.trim() === '' ? null : parseFloat(compEventForm.newSalary);
+    if (parsedSalary !== null && (!Number.isFinite(parsedSalary) || parsedSalary < 0)) {
+      toast({ title: 'Invalid salary', description: 'Enter a non-negative salary value.', variant: 'destructive' });
+      return;
+    }
+    if (compEventForm.eventType === 'Demotion' && !compEventForm.reason.trim()) {
+      toast({ title: 'Reason required', description: 'Demotion must include a reason.', variant: 'destructive' });
+      return;
+    }
+    setCompEventSaving(true);
+    try {
+      const result = await addCompensationEvent(
+        selectedEmployee.id,
+        {
+          eventType: compEventForm.eventType,
+          newSalary: parsedSalary,
+          newPosition:
+            compEventForm.eventType === 'Promotion' || compEventForm.eventType === 'Demotion'
+              ? compEventForm.newPosition.trim() || null
+              : null,
+          effectiveDate: `${effectiveDate}T00:00:00.000Z`,
+          reason: compEventForm.reason.trim() || null,
+          amendsEventId: compEventForm.amendsEventId.trim() || null,
+          forceSameDayOverride: compEventForm.forceSameDayOverride,
+        },
+        employee.id
+      );
+      if (!result.success) {
+        toast({ title: 'Failed to add event', description: result.error, variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Compensation event created' });
+      setCompEventDialogOpen(false);
+      setCompEventForm({
+        eventType: 'Merit Increase',
+        newSalary: '',
+        newPosition: '',
+        effectiveDate: new Date().toISOString().split('T')[0] || '',
+        reason: '',
+        amendsEventId: '',
+        forceSameDayOverride: false,
+      });
+      await loadEmployeeDetails();
+    } finally {
+      setCompEventSaving(false);
     }
   }
 
@@ -842,7 +979,42 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         return;
       }
 
-      const result = await createEmployee(addEmployeeForm, employee.id);
+      const probationSalaryNum =
+        addEmployeeForm.probationSalary.trim() === '' ? undefined : parseFloat(addEmployeeForm.probationSalary);
+      const confirmedSalaryNum =
+        addEmployeeForm.confirmedSalary.trim() === '' ? undefined : parseFloat(addEmployeeForm.confirmedSalary);
+      if (
+        (addEmployeeForm.probationSalary.trim() !== '' && !Number.isFinite(probationSalaryNum)) ||
+        (addEmployeeForm.confirmedSalary.trim() !== '' && !Number.isFinite(confirmedSalaryNum))
+      ) {
+        toast({
+          title: 'Invalid probation salary',
+          description: 'Probation and confirmed salaries must be blank or valid numbers.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const result = await createEmployee(
+        {
+          email: addEmployeeForm.email,
+          password: addEmployeeForm.password,
+          displayName: addEmployeeForm.displayName,
+          role: addEmployeeForm.role,
+          department: addEmployeeForm.department || undefined,
+          position: addEmployeeForm.position || undefined,
+          phoneNumber: addEmployeeForm.phoneNumber || undefined,
+          dateOfBirth: addEmployeeForm.dateOfBirth || undefined,
+          hireDate: addEmployeeForm.hireDate,
+          scheduleStart: addEmployeeForm.scheduleStart,
+          scheduleEnd: addEmployeeForm.scheduleEnd,
+          dayOff: addEmployeeForm.dayOff,
+          probationSalary: probationSalaryNum,
+          confirmedSalary: confirmedSalaryNum,
+          probationEndDate: addEmployeeForm.probationEndDate.trim() || undefined,
+        },
+        employee.id
+      );
 
       if (result.success) {
         toast({
@@ -882,6 +1054,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           scheduleStart: '09:00',
           scheduleEnd: '18:00',
           dayOff: 'Sunday',
+          probationSalary: '',
+          confirmedSalary: '',
+          probationEndDate: '',
         });
 
         // Close dialog
@@ -908,49 +1083,84 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
     }
   }
 
-  async function handleSaveSchedule() {
+  function handleToggleScheduleDay(day: ScheduleWeekdayKey, active: boolean) {
+    setScheduleForm((prev) => ({
+      ...prev,
+      days: {
+        ...prev.days,
+        [day]: { ...prev.days[day], active },
+      },
+    }));
+  }
+
+  function handleUpdateScheduleDayTime(day: ScheduleWeekdayKey, field: 'shiftStart' | 'shiftEnd', value: string) {
+    setScheduleForm((prev) => ({
+      ...prev,
+      days: {
+        ...prev.days,
+        [day]: { ...prev.days[day], [field]: value },
+      },
+    }));
+  }
+
+  async function handleCreateSchedule() {
     if (!selectedEmployee) return;
+    if (!scheduleForm.startDate) {
+      toast({ title: 'Start date required', variant: 'destructive' });
+      return;
+    }
     setScheduleSaving(true);
+    setScheduleConflictWarning(null);
     try {
-      const cur = selectedEmployee;
-      const updates: Record<string, string | null> = {};
-      const curStart = cur.scheduleStart || '';
-      const curEnd = cur.scheduleEnd || '';
-      const curOff = cur.dayOff || 'Sunday';
-      if (scheduleDraft.scheduleStart !== curStart) {
-        updates.scheduleStart = scheduleDraft.scheduleStart ? scheduleDraft.scheduleStart : null;
-      }
-      if (scheduleDraft.scheduleEnd !== curEnd) {
-        updates.scheduleEnd = scheduleDraft.scheduleEnd ? scheduleDraft.scheduleEnd : null;
-      }
-      if (scheduleDraft.dayOff !== curOff) {
-        updates.dayOff = scheduleDraft.dayOff ? scheduleDraft.dayOff : null;
-      }
-      if (Object.keys(updates).length === 0) {
-        toast({ title: 'No changes', description: 'Schedule and weekly off are unchanged.' });
+      const result = await createEmployeeDateRangeSchedule(
+        selectedEmployee.id,
+        {
+          startDate: `${scheduleForm.startDate}T00:00:00.000Z`,
+          endDate: scheduleForm.openEnded || !scheduleForm.endDate ? null : `${scheduleForm.endDate}T00:00:00.000Z`,
+          days: scheduleForm.days,
+          repeatType: scheduleForm.repeatType,
+          notes: scheduleForm.notes,
+          forceOverride: scheduleForm.forceOverride,
+        },
+        employee.id
+      );
+      if (!result.success) {
+        setScheduleConflictWarning(result.conflictMessage || null);
+        toast({ title: 'Could not save schedule', description: result.error, variant: 'destructive' });
         return;
       }
-      const result = await updateEmployee(selectedEmployee.id, updates, employee.id);
-      if (result.success) {
-        toast({ title: 'Schedule saved', description: 'Shift times and weekly off day updated.' });
-        const merged = {
-          ...selectedEmployee,
-          scheduleStart: scheduleDraft.scheduleStart || undefined,
-          scheduleEnd: scheduleDraft.scheduleEnd || undefined,
-          dayOff: scheduleDraft.dayOff || undefined,
-        };
-        setSelectedEmployee(merged);
-        setEmployees((prev) =>
-          prev.map((e) => (e.id === selectedEmployee.id ? { ...e, ...merged } : e))
-        );
-      } else {
-        toast({ title: 'Save failed', description: result.error, variant: 'destructive' });
+      toast({ title: 'Schedule added' });
+      setScheduleModalOpen(false);
+      await loadEmployeeDetails();
+      const refreshed = await getEmployee(selectedEmployee.id);
+      if (refreshed) {
+        setSelectedEmployee(refreshed);
+        setEmployees((prev) => prev.map((e) => (e.id === refreshed.id ? refreshed : e)));
       }
-    } catch (e: unknown) {
-      const err = e as Error;
-      toast({ title: 'Error', description: err.message || 'Failed to save schedule', variant: 'destructive' });
     } finally {
       setScheduleSaving(false);
+    }
+  }
+
+  async function handleEndScheduleEarly(schedule: EmployeeDateRangeSchedule) {
+    if (!selectedEmployee) return;
+    const today = new Date().toISOString().split('T')[0] || '';
+    const result = await updateEmployeeDateRangeSchedule(
+      selectedEmployee.id,
+      schedule.scheduleId,
+      { endDate: `${today}T00:00:00.000Z` },
+      employee.id
+    );
+    if (!result.success) {
+      toast({ title: 'Could not end schedule', description: result.error, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Schedule ended' });
+    await loadEmployeeDetails();
+    const refreshed = await getEmployee(selectedEmployee.id);
+    if (refreshed) {
+      setSelectedEmployee(refreshed);
+      setEmployees((prev) => prev.map((e) => (e.id === refreshed.id ? refreshed : e)));
     }
   }
 
@@ -967,6 +1177,17 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       phoneNumber: selectedEmployee.phoneNumber || '',
       dateOfBirth: selectedEmployee.dateOfBirth ? new Date(selectedEmployee.dateOfBirth).toISOString().split('T')[0] : '',
       hireDate: selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '',
+      probationSalary:
+        selectedEmployee.probationSalary != null && selectedEmployee.probationSalary !== undefined
+          ? String(selectedEmployee.probationSalary)
+          : '',
+      confirmedSalary:
+        selectedEmployee.confirmedSalary != null && selectedEmployee.confirmedSalary !== undefined
+          ? String(selectedEmployee.confirmedSalary)
+          : '',
+      probationEndDate: selectedEmployee.probationEndDate
+        ? new Date(selectedEmployee.probationEndDate).toISOString().split('T')[0]
+        : '',
     });
     setEditEmployeeDialogOpen(true);
   }
@@ -1015,6 +1236,41 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
       const currentHireDate = selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toISOString().split('T')[0] : '';
       if (editEmployeeForm.hireDate !== currentHireDate) {
         updates.hireDate = editEmployeeForm.hireDate;
+      }
+
+      if (editEmployeeForm.probationSalary.trim() === '') {
+        if (selectedEmployee.probationSalary != null) {
+          updates.probationSalary = null;
+        }
+      } else {
+        const n = parseFloat(editEmployeeForm.probationSalary);
+        if (!Number.isFinite(n)) {
+          toast({ title: 'Invalid probation salary', variant: 'destructive' });
+          return;
+        }
+        if (n !== selectedEmployee.probationSalary) {
+          updates.probationSalary = n;
+        }
+      }
+      if (editEmployeeForm.confirmedSalary.trim() === '') {
+        if (selectedEmployee.confirmedSalary != null) {
+          updates.confirmedSalary = null;
+        }
+      } else {
+        const n = parseFloat(editEmployeeForm.confirmedSalary);
+        if (!Number.isFinite(n)) {
+          toast({ title: 'Invalid confirmed salary', variant: 'destructive' });
+          return;
+        }
+        if (n !== selectedEmployee.confirmedSalary) {
+          updates.confirmedSalary = n;
+        }
+      }
+      const currentProbationEnd = selectedEmployee.probationEndDate
+        ? new Date(selectedEmployee.probationEndDate).toISOString().split('T')[0]
+        : '';
+      if (editEmployeeForm.probationEndDate !== currentProbationEnd) {
+        updates.probationEndDate = editEmployeeForm.probationEndDate.trim() || null;
       }
 
       if (Object.keys(updates).length === 0) {
@@ -1776,102 +2032,105 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 </CardContent>
               </Card>
 
-              {/* Work schedule: management + admin — shift presets, custom times, weekly off (payroll working days) */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Clock className="h-5 w-5" />
-                    Work schedule &amp; weekly off
+                    Scheduling
                   </CardTitle>
                   <CardDescription>
-                    Set expected start/end and which weekday is off (used for late-in after start + 15 minutes, and salary per working day). Administrators and managers can edit.
+                    Date-range schedules with status tracking. Legacy fields are auto-synced from the dominant active schedule.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="shift-preset">Common shifts</Label>
-                    <Select
-                      value={schedulePreset}
-                      onValueChange={(id) => {
-                        setSchedulePreset(id);
-                        const preset = SHIFT_PRESETS.find((p) => p.id === id);
-                        if (preset && id !== 'custom') {
-                          setScheduleDraft((d) => ({
-                            ...d,
-                            scheduleStart: preset.start,
-                            scheduleEnd: preset.end,
-                          }));
-                        }
-                      }}
-                    >
-                      <SelectTrigger id="shift-preset">
-                        <SelectValue placeholder="Pick a template or custom" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SHIFT_PRESETS.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Choose a preset or Custom, then adjust the time fields for any shift pattern.
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      Current legacy snapshot: {selectedEmployee.scheduleStart ? formatScheduleHm(selectedEmployee.scheduleStart) : '—'} to{' '}
+                      {selectedEmployee.scheduleEnd ? formatScheduleHm(selectedEmployee.scheduleEnd) : '—'} · Day off {selectedEmployee.dayOff || '—'}
                     </p>
+                    <Button type="button" onClick={() => setScheduleModalOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Schedule
+                    </Button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="panel-schedule-start">Schedule start</Label>
-                      <Input
-                        id="panel-schedule-start"
-                        type="time"
-                        value={scheduleDraft.scheduleStart}
-                        onChange={(e) => {
-                          setSchedulePreset('custom');
-                          setScheduleDraft((d) => ({ ...d, scheduleStart: e.target.value }));
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="panel-schedule-end">Schedule end</Label>
-                      <Input
-                        id="panel-schedule-end"
-                        type="time"
-                        value={scheduleDraft.scheduleEnd}
-                        onChange={(e) => {
-                          setSchedulePreset('custom');
-                          setScheduleDraft((d) => ({ ...d, scheduleEnd: e.target.value }));
-                        }}
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label htmlFor="panel-day-off">Weekly day off</Label>
-                      <Select
-                        value={scheduleDraft.dayOff}
-                        onValueChange={(value) => {
-                          setSchedulePreset('custom');
-                          setScheduleDraft((d) => ({ ...d, dayOff: value }));
-                        }}
-                      >
-                        <SelectTrigger id="panel-day-off">
-                          <SelectValue placeholder="Day off" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {WEEKDAY_OPTIONS.map((d) => (
-                            <SelectItem key={d} value={d}>
-                              {d}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Example: Wednesday off vs Monday off changes how many working days are in a month for pay.
-                      </p>
-                    </div>
-                  </div>
-                  <Button type="button" onClick={handleSaveSchedule} disabled={scheduleSaving}>
-                    {scheduleSaving ? <LoadingSpinner label="Saving" size="sm" /> : 'Save schedule'}
-                  </Button>
+
+                  {(() => {
+                    const activeSchedules = employeeSchedules.filter((s) => s.status === 'active');
+                    const upcomingSchedules = employeeSchedules.filter((s) => s.status === 'upcoming');
+                    const expiredSchedules = employeeSchedules.filter((s) => s.status === 'expired');
+                    const renderScheduleRow = (s: EmployeeDateRangeSchedule) => {
+                      const daySummary = SCHEDULE_WEEKDAYS.filter((d) => s.days[d].active)
+                        .map((d) => `${formatWeekdayLabel(d).slice(0, 3)} ${s.days[d].shiftStart}-${s.days[d].shiftEnd}`)
+                        .join(' · ');
+                      return (
+                        <div key={s.scheduleId} className="rounded-md border p-3 text-sm space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium">
+                                {formatDate(s.startDate)} to {s.endDate ? formatDate(s.endDate) : 'Open-ended'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{daySummary || 'No active days'}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  s.status === 'active' && 'border-emerald-200 bg-emerald-50 text-emerald-900',
+                                  s.status === 'upcoming' && 'border-blue-200 bg-blue-50 text-blue-800',
+                                  s.status === 'expired' && 'border-slate-200 bg-slate-50 text-slate-600'
+                                )}
+                              >
+                                {s.status === 'upcoming' ? 'Scheduled' : s.status[0].toUpperCase() + s.status.slice(1)}
+                              </Badge>
+                              {s.status !== 'expired' && (
+                                <Button variant="outline" size="sm" onClick={() => handleEndScheduleEarly(s)}>
+                                  End now
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {s.notes && <p className="text-xs text-muted-foreground">{s.notes}</p>}
+                        </div>
+                      );
+                    };
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Active</p>
+                          {activeSchedules.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No active schedules.</p>
+                          ) : (
+                            activeSchedules.map(renderScheduleRow)
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Scheduled</p>
+                          {upcomingSchedules.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No upcoming schedules.</p>
+                          ) : (
+                            upcomingSchedules.map(renderScheduleRow)
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Button
+                            variant="ghost"
+                            className="h-auto p-0 text-sm font-medium"
+                            onClick={() => setShowExpiredSchedules((v) => !v)}
+                          >
+                            <ChevronDown className={cn('h-4 w-4 mr-1 transition-transform', showExpiredSchedules && 'rotate-180')} />
+                            Expired ({expiredSchedules.length})
+                          </Button>
+                          {showExpiredSchedules && (
+                            expiredSchedules.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">No expired schedules.</p>
+                            ) : (
+                              expiredSchedules.map(renderScheduleRow)
+                            )
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </CardContent>
               </Card>
 
@@ -1884,6 +2143,39 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                    <p>
+                      <span className="text-muted-foreground">Current salary:</span>{' '}
+                      <span className="font-semibold">
+                        {(compForm.currency || DEFAULT_CURRENCY)} {(compensation?.salary ?? 0).toLocaleString()}
+                      </span>
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Current position:</span>{' '}
+                      <span className="font-semibold">{selectedEmployee?.position || '—'}</span>
+                    </p>
+                  </div>
+                  {selectedEmployee?.probationEndDate && (() => {
+                    const end = new Date(selectedEmployee.probationEndDate);
+                    const now = new Date();
+                    const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    if (Number.isNaN(end.getTime()) || diffDays < 0 || diffDays > 7) return null;
+                    return (
+                      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                        Probation ends in {diffDays} day{diffDays === 1 ? '' : 's'} ({formatDate(selectedEmployee.probationEndDate)}).
+                      </div>
+                    );
+                  })()}
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => setCompEventDialogOpen(true)}>
+                      Add Compensation Event
+                    </Button>
+                    {isAdmin && (
+                      <Button type="button" variant="outline" onClick={() => window.location.assign('/management/compensation/cola')}>
+                        Open Bulk COLA
+                      </Button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="salary">Salary</Label>
@@ -1978,7 +2270,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                     const m = now.getMonth();
                     const salaryNum = parseFloat(compForm.salary) || compensation.salary || 0;
                     const cur = compForm.currency || compensation.currency;
-                    const dayOffForPreview = scheduleDraft.dayOff || selectedEmployee.dayOff || 'Sunday';
+                    const dayOffForPreview = selectedEmployee.dayOff || 'Sunday';
                     const wd = workingDaysInMonth(y, m, dayOffForPreview);
                     const spd = salaryPerDayForMonth(salaryNum, y, m, dayOffForPreview);
                     return (
@@ -2004,6 +2296,58 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                   <Button onClick={handleSaveCompensation} disabled={!isAdmin}>
                     Save Compensation
                   </Button>
+                  <div className="rounded-md border p-3">
+                    <p className="font-medium mb-2">Compensation History</p>
+                    {compensationHistory.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No compensation events yet.</p>
+                    ) : (
+                      <div className="space-y-2 text-sm">
+                        {compensationHistory.map((evt) => (
+                          <div
+                            key={evt.id}
+                            className={`grid grid-cols-1 sm:grid-cols-6 gap-2 rounded border p-2 ${evt.isAmended ? 'line-through opacity-70' : ''}`}
+                          >
+                            <span>{formatDate(evt.effectiveDate)}</span>
+                            <span>{evt.eventType}</span>
+                            <span>{evt.previousSalary ?? '—'} → {evt.newSalary ?? '—'}</span>
+                            <span>{evt.percentChange == null ? '—' : `${evt.percentChange}%`}</span>
+                            <span>{evt.previousPosition || '—'} → {evt.newPosition || '—'}</span>
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'gap-1',
+                                  evt.status === 'scheduled' &&
+                                    'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-50',
+                                  evt.status === 'active' &&
+                                    'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-50',
+                                  evt.status === 'superseded' &&
+                                    'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-50'
+                                )}
+                              >
+                                {evt.status === 'scheduled' && (
+                                  <Clock className="h-3 w-3 shrink-0" aria-hidden />
+                                )}
+                                {evt.status === 'scheduled'
+                                  ? 'Scheduled'
+                                  : evt.status === 'active'
+                                    ? 'Active'
+                                    : 'Superseded'}
+                              </Badge>
+                              {evt.isAmended && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-50"
+                                >
+                                  Amended
+                                </Badge>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -2874,6 +3218,52 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 </p>
               </div>
 
+              <div className="md:col-span-2 rounded-lg border bg-muted/20 p-3 space-y-3">
+                <p className="text-sm font-medium">Probation (optional)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="newProbationSalary">Probation salary</Label>
+                    <Input
+                      id="newProbationSalary"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={addEmployeeForm.probationSalary}
+                      onChange={(e) =>
+                        setAddEmployeeForm({ ...addEmployeeForm, probationSalary: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newConfirmedSalary">Confirmed salary after probation</Label>
+                    <Input
+                      id="newConfirmedSalary"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={addEmployeeForm.confirmedSalary}
+                      onChange={(e) =>
+                        setAddEmployeeForm({ ...addEmployeeForm, confirmedSalary: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="newProbationEndDate">Probation end date</Label>
+                    <Input
+                      id="newProbationEndDate"
+                      type="date"
+                      value={addEmployeeForm.probationEndDate}
+                      onChange={(e) =>
+                        setAddEmployeeForm({ ...addEmployeeForm, probationEndDate: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Used for probation-end reminders and automatic probation completion when configured in Cloud Functions.
+                </p>
+              </div>
+
               <div>
                 <Label htmlFor="newScheduleStart">Schedule start</Label>
                 <Input
@@ -3055,6 +3445,52 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 )}
               </div>
 
+              <div className="md:col-span-2 rounded-lg border bg-muted/20 p-3 space-y-3">
+                <p className="text-sm font-medium">Probation (optional)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="editProbationSalary">Probation salary</Label>
+                    <Input
+                      id="editProbationSalary"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={editEmployeeForm.probationSalary}
+                      onChange={(e) =>
+                        setEditEmployeeForm({ ...editEmployeeForm, probationSalary: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="editConfirmedSalary">Confirmed salary after probation</Label>
+                    <Input
+                      id="editConfirmedSalary"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={editEmployeeForm.confirmedSalary}
+                      onChange={(e) =>
+                        setEditEmployeeForm({ ...editEmployeeForm, confirmedSalary: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="editProbationEndDate">Probation end date</Label>
+                    <Input
+                      id="editProbationEndDate"
+                      type="date"
+                      value={editEmployeeForm.probationEndDate}
+                      onChange={(e) =>
+                        setEditEmployeeForm({ ...editEmployeeForm, probationEndDate: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to clear. Confirmed salary drives auto probation completion when scheduled jobs run.
+                </p>
+              </div>
+
               {/* Date of Birth */}
               <div className="md:col-span-2">
                 <Label htmlFor="editDateOfBirth">Date of Birth</Label>
@@ -3083,6 +3519,248 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={scheduleModalOpen} onOpenChange={setScheduleModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Schedule</DialogTitle>
+            <DialogDescription>
+              Create a date-range schedule. Conflicts on overlapping day/date ranges can be overridden if needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <Label>Start date</Label>
+                <Input
+                  type="date"
+                  value={scheduleForm.startDate}
+                  onChange={(e) => setScheduleForm((s) => ({ ...s, startDate: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>End date</Label>
+                <Input
+                  type="date"
+                  disabled={scheduleForm.openEnded}
+                  value={scheduleForm.endDate}
+                  onChange={(e) => setScheduleForm((s) => ({ ...s, endDate: e.target.value }))}
+                />
+              </div>
+              <div className="flex items-end">
+                <label className="text-sm flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={scheduleForm.openEnded}
+                    onChange={(e) =>
+                      setScheduleForm((s) => ({
+                        ...s,
+                        openEnded: e.target.checked,
+                        endDate: e.target.checked ? '' : s.endDate,
+                      }))
+                    }
+                  />
+                  Open-ended / No end date
+                </label>
+              </div>
+            </div>
+            <div>
+              <Label>Repeat type</Label>
+              <Select
+                value={scheduleForm.repeatType}
+                onValueChange={(value: 'weekly' | 'custom') =>
+                  setScheduleForm((s) => ({ ...s, repeatType: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weekly">Weekly</SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-3">
+              <Label>Days and shifts</Label>
+              {SCHEDULE_WEEKDAYS.map((day) => (
+                <div key={day} className="rounded border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={scheduleForm.days[day].active}
+                        onChange={(e) => handleToggleScheduleDay(day, e.target.checked)}
+                      />
+                      <span className="font-medium">{formatWeekdayLabel(day)}</span>
+                    </label>
+                    {scheduleForm.days[day].active && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="time"
+                          className="w-32"
+                          value={scheduleForm.days[day].shiftStart}
+                          onChange={(e) => handleUpdateScheduleDayTime(day, 'shiftStart', e.target.value)}
+                        />
+                        <span>to</span>
+                        <Input
+                          type="time"
+                          className="w-32"
+                          value={scheduleForm.days[day].shiftEnd}
+                          onChange={(e) => handleUpdateScheduleDayTime(day, 'shiftEnd', e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                rows={3}
+                value={scheduleForm.notes}
+                onChange={(e) => setScheduleForm((s) => ({ ...s, notes: e.target.value }))}
+                placeholder="Temporary coverage, seasonal changes, etc."
+              />
+            </div>
+            {scheduleConflictWarning && (
+              <div className="rounded border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm">
+                {scheduleConflictWarning}
+              </div>
+            )}
+            <label className="text-sm flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={scheduleForm.forceOverride}
+                onChange={(e) => setScheduleForm((s) => ({ ...s, forceOverride: e.target.checked }))}
+              />
+              <span>Override detected conflicts and save anyway</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScheduleModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateSchedule} disabled={scheduleSaving}>
+              {scheduleSaving ? <LoadingSpinner label="Saving" size="sm" /> : 'Save Schedule'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={compEventDialogOpen} onOpenChange={setCompEventDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Compensation Event</DialogTitle>
+            <DialogDescription>
+              Create a dated compensation change. Future dates stay scheduled until activation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Event type</Label>
+              <Select
+                value={compEventForm.eventType}
+                onValueChange={(value) =>
+                  setCompEventForm((s) => ({ ...s, eventType: value as CompensationEventType }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select event type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Merit Increase">Merit Increase</SelectItem>
+                  <SelectItem value="Promotion">Promotion</SelectItem>
+                  <SelectItem value="Demotion">Demotion</SelectItem>
+                  <SelectItem value="COLA Adjustment">COLA Adjustment</SelectItem>
+                  <SelectItem value="Probation Completion">Probation Completion</SelectItem>
+                  <SelectItem value="Correction/Amendment">Correction/Amendment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>New salary</Label>
+                <Input
+                  type="number"
+                  value={compEventForm.newSalary}
+                  onChange={(e) => setCompEventForm((s) => ({ ...s, newSalary: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Effective date</Label>
+                <Input
+                  type="date"
+                  value={compEventForm.effectiveDate}
+                  onChange={(e) => setCompEventForm((s) => ({ ...s, effectiveDate: e.target.value }))}
+                />
+              </div>
+            </div>
+            {(compEventForm.eventType === 'Promotion' || compEventForm.eventType === 'Demotion') && (
+              <div>
+                <Label>New position</Label>
+                <Input
+                  value={compEventForm.newPosition}
+                  onChange={(e) => setCompEventForm((s) => ({ ...s, newPosition: e.target.value }))}
+                  placeholder="e.g. Senior Engineer"
+                />
+              </div>
+            )}
+            <div>
+              <Label>Reason</Label>
+              <Textarea
+                rows={2}
+                value={compEventForm.reason}
+                onChange={(e) => setCompEventForm((s) => ({ ...s, reason: e.target.value }))}
+              />
+            </div>
+            {compEventForm.eventType === 'Correction/Amendment' && (
+              <div>
+                <Label>Amends event id</Label>
+                <Input
+                  value={compEventForm.amendsEventId}
+                  onChange={(e) => setCompEventForm((s) => ({ ...s, amendsEventId: e.target.value }))}
+                />
+              </div>
+            )}
+            {compEventPercentPreview !== null && (
+              <p className="text-sm text-muted-foreground">Percent change preview: {compEventPercentPreview}%</p>
+            )}
+            {compEventForm.effectiveDate && new Date(compEventForm.effectiveDate) < new Date() && (
+              <p className="text-sm text-amber-700">Backdated entry — adjust payroll manually</p>
+            )}
+            {compEventForm.effectiveDate && new Date(compEventForm.effectiveDate) > new Date() && (
+              <p className="text-sm text-muted-foreground">
+                This will activate on {formatDate(compEventForm.effectiveDate)}
+              </p>
+            )}
+            {!compEventForm.amendsEventId.trim() && (
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-primary shrink-0"
+                  checked={compEventForm.forceSameDayOverride}
+                  onChange={(e) =>
+                    setCompEventForm((s) => ({ ...s, forceSameDayOverride: e.target.checked }))
+                  }
+                />
+                <span>
+                  Allow same-day override — use only if another event already exists for this date and you intend to replace or layer it.
+                </span>
+              </label>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompEventDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCompEvent} disabled={compEventSaving}>
+              {compEventSaving ? <LoadingSpinner label="Saving" size="sm" /> : 'Create Event'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

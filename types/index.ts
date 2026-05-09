@@ -29,6 +29,11 @@ export interface Employee {
   scheduleStart?: string; // HH:mm format (e.g., "09:00")
   scheduleEnd?: string;   // HH:mm format (e.g., "18:00")
   dayOff?: string;        // Day of week (e.g., "Sunday", "Wednesday")
+  currentSalary?: number;
+  currentPosition?: string;
+  probationSalary?: number;
+  confirmedSalary?: number;
+  probationEndDate?: string; // ISO date string
 }
 
 export interface Compensation {
@@ -46,6 +51,67 @@ export interface Compensation {
   scheduleStart?: string;
   scheduleEnd?: string;
   dayOff?: string;
+}
+
+export type CompensationEventType =
+  | 'Merit Increase'
+  | 'Promotion'
+  | 'Demotion'
+  | 'COLA Adjustment'
+  | 'Probation Completion'
+  | 'Correction/Amendment';
+
+export type CompensationEventStatus = 'scheduled' | 'active' | 'superseded';
+
+export interface CompensationHistoryEvent {
+  id: string;
+  employeeId: string;
+  eventType: CompensationEventType;
+  previousSalary: number | null;
+  newSalary: number | null;
+  percentChange: number | null;
+  previousPosition: string | null;
+  newPosition: string | null;
+  effectiveDate: string; // ISO date string
+  reason?: string | null;
+  enteredBy: string;
+  enteredAt: string; // ISO timestamp
+  status: CompensationEventStatus;
+  isRetroactive: boolean;
+  isAmended: boolean;
+  amendsEventId?: string | null;
+}
+
+export type ScheduleRepeatType = 'weekly' | 'custom';
+export type EmployeeScheduleStatus = 'upcoming' | 'active' | 'expired';
+export type ScheduleWeekdayKey =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
+export interface EmployeeScheduleDay {
+  active: boolean;
+  shiftStart: string;
+  shiftEnd: string;
+}
+
+export type EmployeeScheduleDays = Record<ScheduleWeekdayKey, EmployeeScheduleDay>;
+
+export interface EmployeeDateRangeSchedule {
+  scheduleId: string;
+  employeeId: string;
+  startDate: string; // ISO date
+  endDate: string | null; // ISO date or null
+  days: EmployeeScheduleDays;
+  repeatType: ScheduleRepeatType;
+  notes?: string;
+  createdBy: string;
+  createdAt: string; // ISO timestamp
+  status: EmployeeScheduleStatus;
 }
 
 export type LeaveRequestKind = 'monthly' | 'emergency' | 'paid' | 'unpaid';

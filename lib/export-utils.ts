@@ -1,10 +1,150 @@
 import { Employee, AttendanceRecord, Compensation } from '@/types';
+
+export interface EnrichedAttendanceRow {
+  employeeName: string;
+  employeeId: string;
+  record: AttendanceRecord;
+  analysis: AttendanceAnalysis;
+}
+
+export function enrichEmployeeAttendanceRows(
+  employee: Employee,
+  scheduleHistory: ScheduleHistoryEntry[] | undefined,
+  attendance: AttendanceRecord[]
+): EnrichedAttendanceRow[] {
+  const allM = attendance.filter((r) => r.clockIn).map((r) => clockInToMinutes(r.clockIn!));
+  const current = {
+    scheduleStart: employee.scheduleStart ?? null,
+    scheduleEnd: employee.scheduleEnd ?? null,
+    dayOff: employee.dayOff ?? null,
+  };
+  return attendance.map((record) => {
+    const resolved = resolveScheduleForDate(scheduleHistory, String(record.date), current);
+    const analysis = computeAttendanceAnalysis({
+      date: String(record.date),
+      clockIn: record.clockIn,
+      totalHours: record.totalHours,
+      scheduleStart: resolved.scheduleStart,
+      dayOff: resolved.dayOff,
+      allClockInMinutes: allM,
+    });
+    return {
+      employeeName: employee.displayName || '',
+      employeeId: employee.id,
+      record: { ...record, status: analysis.status },
+      analysis,
+    };
+  });
+}
+
+function clockIsoToHHmm(iso: string | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  } catch {
+    return '';
+  }
+}
+
+export interface LateExportSummary {
+  totalRecords: number;
+  onTime: number;
+  late: number;
+  absent: number;
+  totalLateMinutes: number;
+  mostLateEmployeeName: string;
+  mostLateEmployeeCount: number;
+}
+
+export function aggregateLateSummary(rows: EnrichedAttendanceRow[]): LateExportSummary {
+  let onTime = 0;
+  let late = 0;
+  let absent = 0;
+  let totalLateMinutes = 0;
+  const lateByEmployee = new Map<string, number>();
+
+  for (const row of rows) {
+    const { analysis } = row;
+    const name = row.employeeName || 'Unknown';
+    const isNoSchedule =
+      analysis.exportStatus === 'No Schedule' || analysis.lateCategory === 'No Schedule';
+    const isAbsent = analysis.exportStatus === 'Absent';
+    const isLate =
+      analysis.exportStatus === 'Late' ||
+      (analysis.exportStatus === 'Half Day' && analysis.isLate);
+
+    if (isAbsent) {
+      absent++;
+      continue;
+    }
+    if (isLate) {
+      late++;
+      totalLateMinutes += analysis.lateMinutes ?? 0;
+      lateByEmployee.set(name, (lateByEmployee.get(name) ?? 0) + 1);
+      continue;
+    }
+    if (isNoSchedule) {
+      continue;
+    }
+    onTime++;
+  }
+
+  let mostName = '';
+  let mostCount = 0;
+  for (const [n, c] of lateByEmployee) {
+    if (c > mostCount) {
+      mostCount = c;
+      mostName = n;
+    }
+  }
+
+  return {
+    totalRecords: rows.length,
+    onTime,
+    late,
+    absent,
+    totalLateMinutes,
+    mostLateEmployeeName: mostName,
+    mostLateEmployeeCount: mostCount,
+  };
+}
+
+function formatLateSummaryBlock(summary: LateExportSummary): string {
+  const most =
+    summary.mostLateEmployeeName && summary.mostLateEmployeeCount > 0
+      ? `${summary.mostLateEmployeeName} (${summary.mostLateEmployeeCount} times late)`
+      : 'N/A';
+  return [
+    '',
+    '+------------------------------------------+',
+    '| ATTENDANCE LATE SUMMARY (export window)  |',
+    '+------------------------------------------+',
+    `Total Records: ${summary.totalRecords}`,
+    `On Time: ${summary.onTime}`,
+    `Late: ${summary.late}`,
+    `Absent: ${summary.absent}`,
+    `Total Late Minutes: ${summary.totalLateMinutes}`,
+    `Most Late Employee: ${most}`,
+    '+------------------------------------------+',
+    '',
+  ].join('\n');
+}
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { salaryPerDayForMonth, workingDaysInMonth } from '@/lib/payroll-helpers';
 import {
   ScheduleHistoryEntry,
+  resolveScheduleForDate,
   resolveScheduleForMonth,
 } from '@/lib/schedule-history';
+import {
+  clockInToMinutes,
+  computeAttendanceAnalysis,
+  type AttendanceAnalysis,
+} from '@/lib/utils/late-calculator';
 import {
   calculateRegularHours,
   calculateOTHours,
@@ -297,20 +437,39 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   }
 
   if (attendance.length > 0) {
-    output += 'RECENT ATTENDANCE (Last 30 Records)\n';
-    output += '----------------------------------------\n';
-    output += 'Date         | Clock In | Clock Out | Hours  | Status     | Breaks\n';
-    output += '-------------|----------|-----------|--------|------------|--------\n';
+    const recentDesc = [...attendance]
+      .filter((r) => parseRecordDate(r) !== null)
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 30);
+    const enrichedPrint = enrichEmployeeAttendanceRows(
+      employee,
+      data.scheduleHistory,
+      recentDesc
+    );
 
-    attendance.slice(0, 30).forEach((record) => {
-      const date = record.date || 'N/A';
-      const clockIn = record.clockIn ? formatTime(record.clockIn) : 'N/A';
-      const clockOut = record.clockOut ? formatTime(record.clockOut) : 'N/A';
+    output += 'RECENT ATTENDANCE (Last 30 Records)\n';
+    output += '------------------------------------------------------------------\n';
+    output +=
+      'Date       | Sched | Actual in | Out     | Hrs  | Late | Min | Status\n';
+    output +=
+      '-----------|-------|-----------|---------|------|------|-----|------------\n';
+
+    enrichedPrint.forEach(({ record, analysis }) => {
+      const date = (record.date || 'N/A').padEnd(10);
+      const sched = (analysis.scheduledStartDisplay || '').padEnd(5);
+      const actualIn = (clockIsoToHHmm(record.clockIn) || '').padEnd(9);
+      const cout = (record.clockOut ? formatTime(record.clockOut) : 'N/A').padEnd(7);
       const hours = record.totalHours ? record.totalHours.toFixed(2) : 'N/A';
-      const status = record.status || '';
-      const breaks = record.breaks ? record.breaks.length : 0;
-      output += `${date.padEnd(12)} | ${clockIn.padEnd(8)} | ${clockOut.padEnd(9)} | ${String(hours).padEnd(6)} | ${status.padEnd(10)} | ${breaks}\n`;
+      const late = analysis.isLate ? 'Yes ' : 'No  ';
+      const mins =
+        analysis.lateMinutes === null || analysis.lateMinutes === undefined
+          ? 'N/A'
+          : String(analysis.lateMinutes);
+      output += `${date} | ${sched} | ${actualIn} | ${cout} | ${String(hours).padEnd(4)} | ${late} | ${mins.padEnd(3)} | ${analysis.exportStatus}\n`;
     });
+
+    const sum = aggregateLateSummary(enrichedPrint);
+    output += formatLateSummaryBlock(sum);
   }
 
   output += '\n';
@@ -396,28 +555,42 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
   csv += '\n\n';
 
   csv += 'DETAILED ATTENDANCE RECORDS\n';
-  csv += 'Employee Name,Date,Clock In,Clock Out,Total Hours,Status,Breaks\n';
+  csv +=
+    'Employee Name,Date,Scheduled Start,Actual Clock In,Clock In,Clock Out,Hours Worked,Late (Y/N),Minutes Late,Status (export),Breaks\n';
 
   data.forEach((employeeData) => {
-    const { employee, attendance } = employeeData;
+    const { employee, attendance, scheduleHistory } = employeeData;
+    const enriched = enrichEmployeeAttendanceRows(employee, scheduleHistory, attendance);
 
-    attendance.forEach((record) => {
+    enriched.forEach(({ record, analysis }) => {
       const date = record.date || '';
       const clockIn = record.clockIn ? formatTime(record.clockIn) : '';
       const clockOut = record.clockOut ? formatTime(record.clockOut) : '';
       const hours = record.totalHours ? record.totalHours.toFixed(2) : '';
-      const status = record.status || '';
       const breaks = record.breaks ? record.breaks.length : 0;
+      const lateYN = analysis.isLate ? 'Yes' : 'No';
+      const mins =
+        analysis.lateMinutes === null || analysis.lateMinutes === undefined
+          ? ''
+          : String(analysis.lateMinutes);
 
-      csv += `"${employee.displayName}",${date},"${clockIn}","${clockOut}",${hours},"${status}",${breaks}\n`;
+      csv += `"${employee.displayName}",${date},"${analysis.scheduledStartDisplay || ''}","${clockIsoToHHmm(record.clockIn)}","${clockIn}","${clockOut}",${hours},"${lateYN}","${mins}","${analysis.exportStatus}",${breaks}\n`;
     });
   });
+
+  const allEnriched = data.flatMap((empData) =>
+    enrichEmployeeAttendanceRows(empData.employee, empData.scheduleHistory, empData.attendance)
+  );
+  csv += formatLateSummaryBlock(aggregateLateSummary(allEnriched));
 
   return csv;
 }
 
 const TIMECARD_HEADERS = [
   'Name',
+  'Work date',
+  'Scheduled start',
+  'Actual clock-in (HH:mm)',
   'Clock in date',
   'Clock in time',
   'Clock out date',
@@ -429,14 +602,16 @@ const TIMECARD_HEADERS = [
   'Payroll ID',
   'Role',
   'Wage rate (per day)',
-  'Actual hours',
+  'Hours worked',
   'Total paid hours',
   'Regular hours',
   'Unpaid breaks',
   'OT hours',
   'Estimated wages',
-  'Attendance status',
-  'Late',
+  'Attendance status (portal)',
+  'Late (Y/N)',
+  'Minutes late',
+  'Status (export)',
   'No show reason',
   'Employee note',
   'Manager note',
@@ -455,6 +630,12 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   const sortedAttendance = [...attendance]
     .filter((r) => parseRecordDate(r) !== null)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const enrichedRows = enrichEmployeeAttendanceRows(
+    employee,
+    data.scheduleHistory,
+    sortedAttendance
+  );
 
   const totalActualHours = sortedAttendance.reduce((s, r) => s + (r.totalHours || 0), 0);
   const totalDaysAttended = months.reduce((s, m) => s + m.daysAttended, 0);
@@ -493,7 +674,7 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
 
   csv += TIMECARD_HEADERS.join(',') + '\n';
 
-  sortedAttendance.forEach((record) => {
+  enrichedRows.forEach(({ record, analysis }) => {
     const clockInDateStr = safeFormatDate(record.clockIn, {
       year: 'numeric',
       month: 'long',
@@ -551,18 +732,24 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
       perDayRate > 0
         ? `${cur} ${perDayRate.toLocaleString()}/day`
         : 'N/A (add monthly salary in compensation)';
-    // Per-row estimated wages stays as informational per-day value (so each
-    // working day shows what it's worth), but it does NOT sum to the total.
-    // The monthly Estimated Wages = Monthly Salary regardless of row count.
     const attended = recordIsAttended(record);
     const onDayOff = isOnDayOff(record, meta?.dayOff);
     const recordEstimated = attended && !onDayOff ? perDayRate : 0;
 
     const attendanceStatus = record.status || '';
-    const lateFlag = attendanceStatus === 'Late In' ? 'Late In' : '';
+    const lateYN = analysis.isLate ? 'Yes' : 'No';
+    const minutesLateStr =
+      analysis.lateMinutes === null || analysis.lateMinutes === undefined
+        ? ''
+        : String(analysis.lateMinutes);
+    const schedDisplay = analysis.scheduledStartDisplay || '';
+    const workDate = record.date || '';
 
     const row = [
       `"${employee.displayName || ''}"`,
+      `"${workDate}"`,
+      `"${schedDisplay}"`,
+      `"${clockIsoToHHmm(record.clockIn)}"`,
       `"${clockInDateStr}"`,
       `"${clockInTimeStr}"`,
       `"${clockOutDateStr}"`,
@@ -581,7 +768,9 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
       otHours.toFixed(2),
       `"${cur} ${recordEstimated.toFixed(2)}"`,
       `"${attendanceStatus}"`,
-      `"${lateFlag}"`,
+      `"${lateYN}"`,
+      `"${minutesLateStr}"`,
+      `"${analysis.exportStatus}"`,
       `"${record.noShowReason || ''}"`,
       `"${record.employeeNote || ''}"`,
       `"${record.managerNote || ''}"`,
@@ -628,6 +817,9 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     '""',
     '""',
     '""',
+    '""',
+    '""',
+    '""',
     totalActualHours.toFixed(2),
     totalPaidHours.toFixed(2),
     totalRegularHours.toFixed(2),
@@ -639,9 +831,86 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     '""',
     '""',
     '""',
+    '""',
+    '""',
   ];
 
   csv += totalsRow.join(',') + '\n';
+
+  const summary = aggregateLateSummary(enrichedRows);
+  csv += formatLateSummaryBlock(summary);
+
+  return csv;
+}
+
+/**
+ * Exports only Late + Absent rows for the provided attendance window.
+ * Running late count = cumulative late incidents for that employee in date order within the export.
+ */
+export function formatLateReportCSV(data: EmployeeExportData[]): string {
+  type Kind = 'late' | 'absent';
+
+  const raw: {
+    employeeName: string;
+    date: string;
+    scheduledStart: string;
+    actualClockIn: string;
+    minutesLate: string;
+    kind: Kind;
+  }[] = [];
+
+  for (const empData of data) {
+    const enriched = enrichEmployeeAttendanceRows(
+      empData.employee,
+      empData.scheduleHistory,
+      empData.attendance
+    );
+    const sorted = [...enriched].sort((a, b) =>
+      String(a.record.date).localeCompare(String(b.record.date))
+    );
+
+    for (const row of sorted) {
+      const { analysis, record } = row;
+      const isLateRow =
+        analysis.exportStatus === 'Late' ||
+        (analysis.exportStatus === 'Half Day' && analysis.isLate);
+      const isAbsentRow = analysis.exportStatus === 'Absent';
+      if (!isLateRow && !isAbsentRow) continue;
+
+      const minutesLate =
+        analysis.lateMinutes === null || analysis.lateMinutes === undefined
+          ? 'N/A'
+          : String(analysis.lateMinutes);
+
+      raw.push({
+        employeeName: empData.employee.displayName || 'Unknown',
+        date: String(record.date),
+        scheduledStart: analysis.scheduledStartDisplay || '',
+        actualClockIn: clockIsoToHHmm(record.clockIn),
+        minutesLate: isAbsentRow ? 'N/A' : minutesLate,
+        kind: isLateRow ? 'late' : 'absent',
+      });
+    }
+  }
+
+  raw.sort((a, b) =>
+    a.employeeName.localeCompare(b.employeeName) || a.date.localeCompare(b.date)
+  );
+
+  let csv = 'LATE REPORT (Late + Absent only)\n';
+  csv += `Generated: ${formatPortalGeneratedTimestamp()}\n\n`;
+  csv +=
+    'Employee Name,Date,Scheduled Start,Actual Clock In,Minutes Late,Running Late Count\n';
+
+  for (const r of raw) {
+    const running = raw.filter(
+      (x) =>
+        x.employeeName === r.employeeName &&
+        x.kind === 'late' &&
+        x.date <= r.date
+    ).length;
+    csv += `"${r.employeeName}",${r.date},"${r.scheduledStart}","${r.actualClockIn}","${r.minutesLate}",${running}\n`;
+  }
 
   return csv;
 }
@@ -650,15 +919,37 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
 export function formatAllEmployeesDataAsTimecardCSV(data: EmployeeExportData[]): string {
   let csv = TIMECARD_HEADERS.join(',') + '\n';
 
+  const allEnrichedAggregate: EnrichedAttendanceRow[] = [];
+
   data.forEach((employeeData) => {
+    allEnrichedAggregate.push(
+      ...enrichEmployeeAttendanceRows(
+        employeeData.employee,
+        employeeData.scheduleHistory,
+        employeeData.attendance
+      )
+    );
+
     const employeeCSV = formatEmployeeDataAsTimecardCSV(employeeData);
     const lines = employeeCSV.split('\n');
-    const headerIdx = lines.findIndex((line) => line.startsWith('Name,Clock in date,'));
+    const headerIdx = lines.findIndex((line) => line.startsWith('Name,Work date,'));
     if (headerIdx === -1) return;
-    const dataLines = lines.slice(headerIdx + 1).filter((line) => line.trim() !== '');
+
+    const dataLines: string[] = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const t = line.trim();
+      if (!t) continue;
+      if (t.startsWith('+---')) break;
+      if (t.includes('ATTENDANCE LATE SUMMARY')) break;
+      dataLines.push(line);
+      if (t.startsWith('"Totals for')) break;
+    }
     if (dataLines.length === 0) return;
     csv += dataLines.join('\n') + '\n';
   });
+
+  csv += formatLateSummaryBlock(aggregateLateSummary(allEnrichedAggregate));
 
   return csv;
 }

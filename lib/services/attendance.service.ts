@@ -8,6 +8,12 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { AttendanceRecord, BreakRecord } from '@/types';
 import { calculateHours } from '@/lib/utils';
 import { getDateKey, getYesterdayDateString } from './date-helpers';
+import { resolveScheduleForDate } from '@/lib/schedule-history';
+import { getScheduleHistory } from '@/lib/services/employees.service';
+import {
+  clockInToMinutes,
+  computeAttendanceAnalysis,
+} from '@/lib/utils/late-calculator';
 
 function docToAttendanceRecord(
   doc: { id: string; exists: boolean; data: () => Record<string, unknown> | undefined },
@@ -225,151 +231,6 @@ export async function endBreak(
   }
 }
 
-const MINUTES_PER_DAY = 1440;
-
-/** Minutes from midnight (0–1439) for a given ISO clock-in time (employee-local wall time). */
-function clockInToMinutes(clockIn: string): number {
-  const d = new Date(clockIn);
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-/** Shortest distance between two times-of-day on a 24h circle (handles overnight). */
-function circularMinutesDistance(a: number, b: number): number {
-  const d = Math.abs(a - b);
-  return Math.min(d, MINUTES_PER_DAY - d);
-}
-
-/** Minutes moving forward on the circle from `start` to `end` (both 0–1439). */
-function forwardMinutesOnCircle(start: number, end: number): number {
-  if (end >= start) return end - start;
-  return MINUTES_PER_DAY - start + end;
-}
-
-/** When history mixes late-evening and early-morning clock-ins, map “next calendar morning” past midnight for linear clustering. */
-function expandMinutesForOvernightClustering(minutes: number[]): number[] {
-  if (minutes.length === 0) return minutes;
-  const hasEvening = minutes.some((m) => m >= 18 * 60);
-  const hasEarlyMorning = minutes.some((m) => m < 6 * 60);
-  if (!hasEvening || !hasEarlyMorning) return minutes;
-  return minutes.map((m) => (m < 12 * 60 ? m + MINUTES_PER_DAY : m));
-}
-
-/**
- * Clusters clock-in times (in minutes) by proximity. Times within MAX_GAP minutes
- * are considered the same shift; otherwise a new cluster starts. Uses expanded
- * timeline when evening + early-morning mixes appear (overnight shifts).
- */
-function clusterClockInTimes(minutes: number[], maxGapMinutes: number = 240): number[][] {
-  if (minutes.length === 0) return [];
-  const expanded = expandMinutesForOvernightClustering(minutes);
-  const sorted = [...expanded].sort((a, b) => a - b);
-  const clusters: number[][] = [];
-  let current: number[] = [sorted[0]];
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i] - sorted[i - 1];
-    if (gap <= maxGapMinutes) {
-      current.push(sorted[i]);
-    } else {
-      clusters.push(current);
-      current = [sorted[i]];
-    }
-  }
-  clusters.push(current);
-  return clusters;
-}
-
-/** Median on the expanded timeline; fold back to 0–1439 for “time of day” (overnight-aware). */
-function medianTimeOfDayFromExpandedCluster(cluster: number[]): number {
-  if (cluster.length === 0) return 0;
-  const sorted = [...cluster].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const raw =
-    sorted.length % 2 === 1
-      ? sorted[mid]
-      : (sorted[mid - 1] + sorted[mid]) / 2;
-  let m = raw;
-  while (m >= MINUTES_PER_DAY) m -= MINUTES_PER_DAY;
-  return Math.round(m);
-}
-
-/**
- * Infers "expected start" times from an employee's own clock-in history (one per
- * shift cluster), then decides On Time vs Late In using a grace period. No
- * hardcoded 9 AM / 9 PM — works for morning, evening, and night shifts.
- */
-const GRACE_MINUTES = 15;
-const MIN_CLOCK_INS_FOR_INFERENCE = 2;
-/** Clock-ins from this minute onward are treated as “evening” for overnight lateness. */
-const EVENING_START_MINUTES = 18 * 60;
-/** Clock-ins at or before this minute may be “next morning” after an evening shift start. */
-const MORNING_END_MINUTES = 8 * 60;
-
-function inferStatusFromHistory(
-  clockIn: string | undefined,
-  totalHours: number | undefined,
-  allClockInMinutes: number[]
-): 'On Time' | 'Late In' | 'Absent' | 'Half Day' {
-  if (!clockIn) return 'Absent';
-  if (totalHours !== undefined && totalHours < 4) return 'Half Day';
-
-  const minutes = allClockInMinutes.filter((m) => m >= 0);
-  if (minutes.length < MIN_CLOCK_INS_FOR_INFERENCE) {
-    return 'On Time'; // Not enough data to infer; default to generous
-  }
-
-  const clusters = clusterClockInTimes(minutes);
-  const medians = clusters.map((c) => medianTimeOfDayFromExpandedCluster(c));
-  const thisMin = clockInToMinutes(clockIn);
-
-  // Nearest shift cluster by circular distance (fixes 10pm vs 7am mis-grouping).
-  let nearestMedian = medians[0];
-  let bestDist = circularMinutesDistance(thisMin, medians[0]);
-  for (let i = 1; i < medians.length; i++) {
-    const d = circularMinutesDistance(thisMin, medians[i]);
-    if (d < bestDist) {
-      bestDist = d;
-      nearestMedian = medians[i];
-    }
-  }
-
-  // Lateness: same “calendar segment” uses linear delta; evening start + early-morning clock-in uses forward distance on the circle.
-  let late = false;
-  if (thisMin >= nearestMedian) {
-    late = thisMin - nearestMedian > GRACE_MINUTES;
-  } else if (nearestMedian >= EVENING_START_MINUTES && thisMin <= MORNING_END_MINUTES) {
-    late = forwardMinutesOnCircle(nearestMedian, thisMin) > GRACE_MINUTES;
-  }
-
-  return late ? 'Late In' : 'On Time';
-}
-
-/**
- * Schedule-aware status: if a scheduleStart (HH:mm) is provided, use it directly
- * with 15 min grace. Otherwise, fall back to history-based inference.
- */
-function determineAttendanceStatus(
-  clockIn: string | undefined,
-  totalHours: number | undefined,
-  allClockInMinutes: number[],
-  scheduleStart?: string
-): 'On Time' | 'Late In' | 'Absent' | 'Half Day' {
-  if (!clockIn) return 'Absent';
-  if (totalHours !== undefined && totalHours < 4) return 'Half Day';
-
-  if (scheduleStart) {
-    const [hStr, mStr] = scheduleStart.split(':');
-    const scheduleMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
-    const clockInMinutes = clockInToMinutes(clockIn);
-    // Forward distance on circle handles overnight
-    const diff = forwardMinutesOnCircle(scheduleMinutes, clockInMinutes);
-    // If the employee is more than 12 hours away, they're probably early not late
-    if (diff > 720) return 'On Time';
-    return diff > GRACE_MINUTES ? 'Late In' : 'On Time';
-  }
-
-  return inferStatusFromHistory(clockIn, totalHours, allClockInMinutes);
-}
-
 async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30): Promise<number[]> {
   const snapshot = await adminDb
     .collection('attendance')
@@ -393,12 +254,22 @@ async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30)
 export async function getTodayAttendance(
   employeeId: string,
   dateOverride?: string,
-  scheduleStart?: string
+  _scheduleStart?: string
 ): Promise<AttendanceRecord | null> {
   try {
     const dateKey = getDateKey(dateOverride);
-    const todayRef = adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`);
-    const todayDoc = await todayRef.get();
+    const [todayDoc, history, empDoc] = await Promise.all([
+      adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`).get(),
+      getScheduleHistory(employeeId),
+      adminDb.collection('employees').doc(employeeId).get(),
+    ]);
+
+    const empData = empDoc.data();
+    const currentSchedule = {
+      scheduleStart: (empData?.scheduleStart as string | null) ?? null,
+      scheduleEnd: (empData?.scheduleEnd as string | null) ?? null,
+      dayOff: (empData?.dayOff as string | null) ?? null,
+    };
 
     let record: AttendanceRecord | null = null;
 
@@ -417,12 +288,18 @@ export async function getTodayAttendance(
       }
     }
 
-    if (record?.clockIn) {
+    if (record) {
       const mins = await fetchRecentClockInMinutes(employeeId, 30);
-      record = {
-        ...record,
-        status: determineAttendanceStatus(record.clockIn, record.totalHours, mins, scheduleStart),
-      };
+      const resolved = resolveScheduleForDate(history, record.date, currentSchedule);
+      const analysis = computeAttendanceAnalysis({
+        date: record.date,
+        clockIn: record.clockIn,
+        totalHours: record.totalHours,
+        scheduleStart: resolved.scheduleStart,
+        dayOff: resolved.dayOff,
+        allClockInMinutes: mins,
+      });
+      record = { ...record, status: analysis.status };
     }
 
     return record;
@@ -435,15 +312,26 @@ export async function getTodayAttendance(
 export async function getAttendanceHistory(
   employeeId: string,
   limit: number = 30,
-  scheduleStart?: string
+  _scheduleStart?: string
 ): Promise<AttendanceRecord[]> {
   try {
-    const snapshot = await adminDb
-      .collection('attendance')
-      .where('employeeId', '==', employeeId)
-      .orderBy('date', 'desc')
-      .limit(limit)
-      .get();
+    const [snapshot, history, empDoc] = await Promise.all([
+      adminDb
+        .collection('attendance')
+        .where('employeeId', '==', employeeId)
+        .orderBy('date', 'desc')
+        .limit(limit)
+        .get(),
+      getScheduleHistory(employeeId),
+      adminDb.collection('employees').doc(employeeId).get(),
+    ]);
+
+    const empData = empDoc.data();
+    const currentSchedule = {
+      scheduleStart: (empData?.scheduleStart as string | null) ?? null,
+      scheduleEnd: (empData?.scheduleEnd as string | null) ?? null,
+      dayOff: (empData?.dayOff as string | null) ?? null,
+    };
 
     const getTs = (v: unknown): string | undefined => {
       if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
@@ -470,25 +358,36 @@ export async function getAttendanceHistory(
       .filter((r) => r.clockIn)
       .map((r) => clockInToMinutes(r.clockIn!));
 
-    return rows.map(({ id, data, clockIn, clockOut, totalHours, getTs }) => ({
-      id,
-      employeeId: data.employeeId,
-      date: data.date,
-      clockIn,
-      clockOut,
-      breaks: (data.breaks || []).map((b: BreakRecord) => ({
-        startTime: b.startTime,
-        endTime: b.endTime,
-        duration: b.duration,
-      })),
-      totalHours,
-      status: determineAttendanceStatus(clockIn, totalHours, allClockInMinutes, scheduleStart),
-      editedBy: data.editedBy,
-      editedAt: getTs(data.editedAt),
-      isEditedByManagement: data.isEditedByManagement || false,
-      createdAt: getTs(data.createdAt),
-      updatedAt: getTs(data.updatedAt),
-    })) as AttendanceRecord[];
+    return rows.map(({ id, data, clockIn, clockOut, totalHours, getTs }) => {
+      const resolved = resolveScheduleForDate(history, data.date as string, currentSchedule);
+      const analysis = computeAttendanceAnalysis({
+        date: data.date as string,
+        clockIn,
+        totalHours,
+        scheduleStart: resolved.scheduleStart,
+        dayOff: resolved.dayOff,
+        allClockInMinutes,
+      });
+      return {
+        id,
+        employeeId: data.employeeId,
+        date: data.date,
+        clockIn,
+        clockOut,
+        breaks: (data.breaks || []).map((b: BreakRecord) => ({
+          startTime: b.startTime,
+          endTime: b.endTime,
+          duration: b.duration,
+        })),
+        totalHours,
+        status: analysis.status,
+        editedBy: data.editedBy,
+        editedAt: getTs(data.editedAt),
+        isEditedByManagement: data.isEditedByManagement || false,
+        createdAt: getTs(data.createdAt),
+        updatedAt: getTs(data.updatedAt),
+      } as AttendanceRecord;
+    });
   } catch (error: unknown) {
     console.error('Get attendance history error:', error);
     return [];

@@ -82,6 +82,37 @@ export async function updateLeaveBalance(
   if (!gate.ok) return { success: false as const, error: gate.error };
   return employeesService.updateLeaveBalanceOnly(employeeId, leaveBalance, updatedBy);
 }
+export async function getCompensationHistory(employeeId: string, requestedBy: string) {
+  const gate = await assertManagementOrAdmin(requestedBy);
+  if (!gate.ok) return [];
+  return employeesService.getCompensationHistory(employeeId);
+}
+export async function addCompensationEvent(
+  employeeId: string,
+  eventInput: Parameters<typeof employeesService.addCompensationEvent>[1],
+  enteredBy: string
+) {
+  const gate = await assertManagementOrAdmin(enteredBy);
+  if (!gate.ok) return { success: false as const, error: gate.error };
+  return employeesService.addCompensationEvent(employeeId, eventInput, enteredBy);
+}
+export async function createBulkColaAdjustment(
+  employeeIds: string[],
+  percentage: number,
+  effectiveDate: string,
+  reason: string | null | undefined,
+  enteredBy: string
+) {
+  const gate = await assertManagementOrAdmin(enteredBy);
+  if (!gate.ok) return { success: false as const, error: gate.error, created: 0 };
+  return employeesService.createBulkColaAdjustment(
+    employeeIds,
+    percentage,
+    effectiveDate,
+    reason,
+    enteredBy
+  );
+}
 export async function checkEmployeeExists(employeeId: string) {
   return employeesService.checkEmployeeExists(employeeId);
 }
@@ -105,4 +136,31 @@ export async function getUpcomingAnniversaries(
 }
 export async function getTenureStatistics() {
   return employeesService.getTenureStatistics();
+}
+
+export async function getEmployeeDateRangeSchedules(employeeId: string, requestedBy: string) {
+  const gate = await assertManagementOrAdmin(requestedBy);
+  if (!gate.ok) return [];
+  return employeesService.getEmployeeDateRangeSchedules(employeeId);
+}
+
+export async function createEmployeeDateRangeSchedule(
+  employeeId: string,
+  scheduleInput: Parameters<typeof employeesService.createEmployeeDateRangeSchedule>[1],
+  createdBy: string
+) {
+  const gate = await assertManagementOrAdmin(createdBy);
+  if (!gate.ok) return { success: false as const, error: gate.error };
+  return employeesService.createEmployeeDateRangeSchedule(employeeId, scheduleInput, createdBy);
+}
+
+export async function updateEmployeeDateRangeSchedule(
+  employeeId: string,
+  scheduleId: string,
+  updates: Parameters<typeof employeesService.updateEmployeeDateRangeSchedule>[2],
+  updatedBy: string
+) {
+  const gate = await assertManagementOrAdmin(updatedBy);
+  if (!gate.ok) return { success: false as const, error: gate.error };
+  return employeesService.updateEmployeeDateRangeSchedule(employeeId, scheduleId, updates, updatedBy);
 }
