@@ -9,8 +9,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await verifyAuth(request);
-  if (!requireStaff(auth)) return jsonUnauthorized();
+  const staffAuth = requireStaff(await verifyAuth(request));
+  if (!staffAuth) return jsonUnauthorized();
 
   const { id } = await params;
   if (!id) return jsonError('Issue id required');
@@ -25,7 +25,7 @@ export async function PATCH(
       id,
       status,
       body?.managementNote,
-      { updatedByName: auth.displayName }
+      { updatedByName: staffAuth.displayName }
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to update issue', 400);
     return jsonSuccess({});
