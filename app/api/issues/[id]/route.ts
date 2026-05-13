@@ -24,7 +24,8 @@ export async function PATCH(
     const result = await issuesService.updateIssueStatus(
       id,
       status,
-      body?.managementNote
+      body?.managementNote,
+      { updatedByName: auth.displayName }
     );
     if (!result.success) return jsonError(result.error ?? 'Failed to update issue', 400);
     return jsonSuccess({});

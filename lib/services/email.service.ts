@@ -347,6 +347,56 @@ export async function sendIssueReportedEmail(
   });
 }
 
+export async function sendIssueUpdateEmail(
+  to: string,
+  payload: {
+    issueTitle: string;
+    status: string;
+    message?: string;
+    updatedByName?: string;
+  }
+): Promise<EmailResult> {
+  const statusLabel = payload.status.replace(/_/g, ' ');
+  const msgBlock = payload.message?.trim()
+    ? `<div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; margin: 16px 0;">
+        <p style="color: #92400e; margin: 0 0 8px 0; font-size: 14px;"><strong>Message from management</strong></p>
+        <p style="color: #374151; font-size: 14px; margin: 0; white-space: pre-wrap;">${escapeHtml(payload.message.trim())}</p>
+      </div>`
+    : '';
+  const fromLine = payload.updatedByName
+    ? `<p style="color: #6b7280; font-size: 13px;">Update from <strong>${escapeHtml(payload.updatedByName)}</strong></p>`
+    : '';
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 20px; border-radius: 8px 8px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 22px;">Issue update</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <p style="color: #374151; font-size: 16px;"><strong>${escapeHtml(payload.issueTitle)}</strong></p>
+        <p style="color: #1e40af; font-size: 15px; margin: 12px 0;"><strong>New status:</strong> ${escapeHtml(statusLabel)}</p>
+        ${fromLine}
+        ${msgBlock}
+        <p style="color: #6b7280; font-size: 14px; margin-top: 16px;">Open the Employee Portal dashboard to see the full thread and current status.</p>
+      </div>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 16px;">Sent from Employee Portal</p>
+    </div>
+  `;
+  const textParts = [
+    `Issue update: ${payload.issueTitle}`,
+    `New status: ${statusLabel}`,
+    payload.updatedByName ? `From: ${payload.updatedByName}` : '',
+    payload.message?.trim() ? `\nMessage:\n${payload.message.trim()}` : '',
+    '\nView your dashboard in the Employee Portal for details.',
+  ].filter(Boolean);
+  return sendEmail({
+    to,
+    subject: `Issue update: ${payload.issueTitle} — ${statusLabel}`,
+    html,
+    text: textParts.join('\n'),
+    category: 'issue-updated',
+  });
+}
+
 export async function sendLeaveRequestSubmittedEmail(
   to: string | string[],
   leave: {

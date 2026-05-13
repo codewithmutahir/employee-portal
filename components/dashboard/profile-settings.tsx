@@ -9,6 +9,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -56,6 +63,29 @@ import {
 } from 'lucide-react';
 import { FaceEnrollment } from './face-enrollment';
 
+const PROFILE_WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+function toDateInputValue(iso?: string | null): string {
+  if (!iso) return '';
+  const s = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+}
+
 interface ProfileSettingsProps {
   employee: Employee & { profilePhotoUrl?: string };
   onProfileUpdate?: () => void;
@@ -91,6 +121,10 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
     preferredName: extEmployee.preferredName || '',
     pronouns: extEmployee.pronouns || '',
     bio: extEmployee.bio || '',
+    dateOfBirth: toDateInputValue(extEmployee.dateOfBirth),
+    scheduleStart: extEmployee.scheduleStart || '',
+    scheduleEnd: extEmployee.scheduleEnd || '',
+    dayOff: extEmployee.dayOff || '',
   });
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -141,6 +175,10 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
       preferredName: ext.preferredName || '',
       pronouns: ext.pronouns || '',
       bio: ext.bio || '',
+      dateOfBirth: toDateInputValue(ext.dateOfBirth),
+      scheduleStart: ext.scheduleStart || '',
+      scheduleEnd: ext.scheduleEnd || '',
+      dayOff: ext.dayOff || '',
     });
   }, [employee]);
 
@@ -175,7 +213,23 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
   async function handleUpdateProfile() {
     setProfileLoading(true);
     try {
-      const result = await updateOwnProfile(employee.id, profileForm);
+      const result = await updateOwnProfile(employee.id, {
+        displayName: profileForm.displayName,
+        phoneNumber: profileForm.phoneNumber,
+        address: profileForm.address,
+        city: profileForm.city,
+        state: profileForm.state,
+        zipCode: profileForm.zipCode,
+        country: profileForm.country,
+        personalEmail: profileForm.personalEmail,
+        preferredName: profileForm.preferredName,
+        pronouns: profileForm.pronouns,
+        bio: profileForm.bio,
+        dateOfBirth: profileForm.dateOfBirth?.trim() || null,
+        scheduleStart: profileForm.scheduleStart?.trim() || null,
+        scheduleEnd: profileForm.scheduleEnd?.trim() || null,
+        dayOff: profileForm.dayOff?.trim() || null,
+      });
       
       if (result.success) {
         toast({
@@ -410,7 +464,9 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
             <User className="h-5 w-5" />
             Personal Information
           </CardTitle>
-          <CardDescription>Update your personal details</CardDescription>
+          <CardDescription>
+            Update your personal details, birth date, and preferred working hours / day off (saved on your employee record; HR may align with official scheduling).
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -458,6 +514,54 @@ export function ProfileSettings({ employee, onProfileUpdate }: ProfileSettingsPr
                 value={profileForm.pronouns}
                 onChange={(e) => setProfileForm({ ...profileForm, pronouns: e.target.value })}
                 placeholder="e.g., he/him, she/her, they/them"
+              />
+            </div>
+            <div>
+              <Label htmlFor="dateOfBirth">Birth date</Label>
+              <Input
+                id="dateOfBirth"
+                type="date"
+                value={profileForm.dateOfBirth}
+                onChange={(e) => setProfileForm({ ...profileForm, dateOfBirth: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="dayOff">Weekly day off</Label>
+              <Select
+                value={profileForm.dayOff ? profileForm.dayOff : 'none'}
+                onValueChange={(v) =>
+                  setProfileForm({ ...profileForm, dayOff: v === 'none' ? '' : v })
+                }
+              >
+                <SelectTrigger id="dayOff">
+                  <SelectValue placeholder="Choose day" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {PROFILE_WEEKDAYS.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="scheduleStart">Shift start</Label>
+              <Input
+                id="scheduleStart"
+                type="time"
+                value={profileForm.scheduleStart}
+                onChange={(e) => setProfileForm({ ...profileForm, scheduleStart: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="scheduleEnd">Shift end</Label>
+              <Input
+                id="scheduleEnd"
+                type="time"
+                value={profileForm.scheduleEnd}
+                onChange={(e) => setProfileForm({ ...profileForm, scheduleEnd: e.target.value })}
               />
             </div>
           </div>

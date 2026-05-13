@@ -59,8 +59,8 @@ import { getNotes } from "@/app/actions/notes";
 import { getEmployeeFaceDescriptor } from "@/app/actions/face";
 import { preloadFaceModels } from "@/lib/face-models";
 import { createMyLeaveRequest, getMyLeaveRequests } from "@/app/actions/leaves";
-import { createIssue } from "@/app/actions/issues";
-import type { IssueCategory } from "@/types";
+import { createIssue, getMyIssues } from "@/app/actions/issues";
+import type { IssueCategory, Issue } from "@/types";
 import AttendanceHistory from "./attendance-history";
 import { FaceVerificationDialog } from "./face-verification-dialog";
 import { FaceEnrollment } from "./face-enrollment";
@@ -104,6 +104,7 @@ export default function EmployeeDashboard({
   const [activeTab, setActiveTab] = useState<"dashboard" | "announcements" | "settings">("dashboard");
   const [issueForm, setIssueForm] = useState({ title: "", description: "", category: "other" as IssueCategory });
   const [issueSubmitting, setIssueSubmitting] = useState(false);
+  const [myIssues, setMyIssues] = useState<Issue[]>([]);
   const [compensation, setCompensation] = useState<Compensation | null>(null);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [leaveForm, setLeaveForm] = useState(() => {
@@ -146,7 +147,12 @@ export default function EmployeeDashboard({
           ? getMyLeaveRequests(employee.id, employee.id)
           : Promise.resolve([] as LeaveRequest[]);
 
-      const [today, history, notesData, stats, monthly, descriptor, comp, leaves] = await Promise.all([
+      const issuesPromise =
+        employee.role === "employee"
+          ? getMyIssues(employee.id, employee.id)
+          : Promise.resolve([] as Issue[]);
+
+      const [today, history, notesData, stats, monthly, descriptor, comp, leaves, issuesList] = await Promise.all([
         getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart),
         getAttendanceHistory(employee.id, 50, employee.scheduleStart),
         getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
@@ -155,6 +161,7 @@ export default function EmployeeDashboard({
         getEmployeeFaceDescriptor(employee.id),
         getCompensation(employee.id),
         leavePromise,
+        issuesPromise,
       ]);
 
       setTodayAttendance(today ? { ...today } : null); // Create mutable copy
@@ -165,7 +172,7 @@ export default function EmployeeDashboard({
       setFaceDescriptor(descriptor);
       setCompensation(comp);
       setLeaveRequests(leaves);
-      
+      setMyIssues(issuesList);
     } catch (error) {
       console.error("Error loading employee data:", error);
       toast({
@@ -305,6 +312,12 @@ export default function EmployeeDashboard({
       if (result.success) {
         toast({ title: "Issue reported", description: "Management has been notified and will look into it." });
         setIssueForm({ title: "", description: "", category: "other" });
+        try {
+          const list = await getMyIssues(employee.id, employee.id);
+          setMyIssues(list);
+        } catch {
+          /* ignore */
+        }
       } else {
         toast({ title: "Failed to report issue", description: result.error, variant: "destructive" });
       }
@@ -1093,6 +1106,61 @@ export default function EmployeeDashboard({
           </Button>
         </CardContent>
       </Card>
+
+      {employee.role === "employee" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5" />
+              Your reported issues
+            </CardTitle>
+            <CardDescription>
+              Status updates and messages from management appear here. You also receive email when an issue is updated.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myIssues.length === 0 ? (
+              <p className="text-sm text-muted-foreground">You have not reported any issues yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {myIssues.map((iss) => (
+                  <li key={iss.id} className="rounded-lg border p-4 space-y-2">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="font-medium">{iss.title}</p>
+                      <Badge
+                        variant="secondary"
+                        className={`capitalize shrink-0 ${
+                          iss.status === "open"
+                            ? "bg-amber-100 text-amber-900 border-amber-200"
+                            : iss.status === "in_progress"
+                              ? "bg-blue-100 text-blue-900 border-blue-200"
+                              : iss.status === "resolved"
+                                ? "bg-green-100 text-green-900 border-green-200"
+                                : "bg-muted"
+                        }`}
+                      >
+                        {iss.status.replace("_", " ")}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Reported {formatDate(iss.createdAt)}
+                      {iss.updatedAt && iss.updatedAt !== iss.createdAt ? ` · Updated ${formatDate(iss.updatedAt)}` : ""}
+                    </p>
+                    {iss.managementNote ? (
+                      <div className="text-sm rounded-md bg-primary/5 border border-primary/10 p-3">
+                        <span className="font-medium text-primary">Message from management: </span>
+                        <span className="whitespace-pre-wrap">{iss.managementNote}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No message from management yet.</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Attendance */}
       <Card>

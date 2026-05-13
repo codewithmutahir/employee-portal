@@ -6,7 +6,7 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Issue, IssueCategory, IssueStatus } from '@/types';
-import { sendIssueReportedEmail } from './email.service';
+import { sendIssueReportedEmail, sendIssueUpdateEmail } from './email.service';
 import { getManagementUsers } from './employees.service';
 
 function toISOString(value: unknown): string | undefined {
@@ -84,27 +84,43 @@ export async function createIssue(
   }
 }
 
+export async function getIssuesByReporter(employeeId: string): Promise<Issue[]> {
+  try {
+    const snapshot = await adminDb.collection('issues').where('createdBy', '==', employeeId).get();
+    const list = snapshot.docs.map((doc) => mapIssueDoc(doc.id, doc.data() as Record<string, unknown>));
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return list;
+  } catch (error: unknown) {
+    console.error('Get issues by reporter error:', error);
+    return [];
+  }
+}
+
+function mapIssueDoc(id: string, d: Record<string, unknown>): Issue {
+  return {
+    id,
+    title: (d.title as string) || '',
+    description: (d.description as string) || '',
+    category: (d.category as IssueCategory) || 'other',
+    status: (d.status as IssueStatus) || 'open',
+    createdBy: (d.createdBy as string) || '',
+    createdByName: (d.createdByName as string) || '',
+    createdByEmail: (d.createdByEmail as string) || '',
+    createdAt: toISOString(d.createdAt) || '',
+    updatedAt: toISOString(d.updatedAt) || '',
+    resolvedAt: toISOString(d.resolvedAt),
+    managementNote:
+      d.managementNote != null && d.managementNote !== ''
+        ? String(d.managementNote)
+        : undefined,
+  } as Issue;
+}
+
 export async function getIssues(): Promise<Issue[]> {
   try {
     const snapshot = await adminDb.collection('issues').get();
 
-    const list = snapshot.docs.map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        title: (d.title as string) || '',
-        description: (d.description as string) || '',
-        category: (d.category as IssueCategory) || 'other',
-        status: (d.status as IssueStatus) || 'open',
-        createdBy: (d.createdBy as string) || '',
-        createdByName: (d.createdByName as string) || '',
-        createdByEmail: (d.createdByEmail as string) || '',
-        createdAt: toISOString(d.createdAt) || '',
-        updatedAt: toISOString(d.updatedAt) || '',
-        resolvedAt: toISOString(d.resolvedAt),
-        managementNote: d.managementNote as string | undefined,
-      } as Issue;
-    });
+    const list = snapshot.docs.map((doc) => mapIssueDoc(doc.id, doc.data() as Record<string, unknown>));
 
     list.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -119,7 +135,8 @@ export async function getIssues(): Promise<Issue[]> {
 export async function updateIssueStatus(
   issueId: string,
   status: IssueStatus,
-  managementNote?: string
+  managementNote?: string,
+  options?: { updatedByName?: string }
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const ref = adminDb.collection('issues').doc(issueId);
@@ -128,17 +145,40 @@ export async function updateIssueStatus(
       return { success: false, error: 'Issue not found' };
     }
 
+    const prev = doc.data() as Record<string, unknown>;
+    const issueTitle = (prev.title as string) || 'Your reported issue';
+    const reporterEmail = (prev.createdByEmail as string) || '';
+
     const updates: Record<string, unknown> = {
       status,
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (managementNote !== undefined) {
-      updates.managementNote = managementNote;
+      const t = managementNote.trim();
+      updates.managementNote = t === '' ? null : t;
     }
     if (status === 'resolved' || status === 'closed') {
       updates.resolvedAt = FieldValue.serverTimestamp();
     }
     await ref.update(updates);
+
+    const noteForEmail =
+      managementNote !== undefined
+        ? managementNote.trim()
+        : ((prev.managementNote as string | undefined) ?? '').trim();
+
+    if (reporterEmail && reporterEmail.includes('@')) {
+      const emailResult = await sendIssueUpdateEmail(reporterEmail, {
+        issueTitle,
+        status,
+        message: noteForEmail || undefined,
+        updatedByName: options?.updatedByName,
+      });
+      if (!emailResult.success) {
+        console.error('Failed to send issue update email:', emailResult.error);
+      }
+    }
+
     return { success: true };
   } catch (error: unknown) {
     const err = error as Error;

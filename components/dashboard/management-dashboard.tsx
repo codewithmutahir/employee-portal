@@ -109,7 +109,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [reportsLoading, setReportsLoading] = useState(true);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [issuesLoading, setIssuesLoading] = useState(true);
-  const [issueStatusUpdating, setIssueStatusUpdating] = useState<string | null>(null);
+  const [issueReplyOpen, setIssueReplyOpen] = useState(false);
+  const [issueReplyIssue, setIssueReplyIssue] = useState<Issue | null>(null);
+  const [issueReplyStatus, setIssueReplyStatus] = useState<IssueStatus>('open');
+  const [issueReplyMessage, setIssueReplyMessage] = useState('');
+  const [issueReplySaving, setIssueReplySaving] = useState(false);
   const { toast } = useToast();
 
   // Get unique departments
@@ -421,29 +425,49 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   async function loadIssues() {
     setIssuesLoading(true);
     try {
-      const list = await getIssues();
+      const list = await getIssues(employee.id);
       setIssues(list);
-    } catch (e) {
+    } catch {
       toast({ title: 'Error', description: 'Failed to load reported issues', variant: 'destructive' });
     } finally {
       setIssuesLoading(false);
     }
   }
 
-  async function handleUpdateIssueStatus(issueId: string, status: IssueStatus) {
-    setIssueStatusUpdating(issueId);
+  function openIssueReply(issue: Issue) {
+    setIssueReplyIssue(issue);
+    setIssueReplyStatus(issue.status);
+    setIssueReplyMessage(issue.managementNote || '');
+    setIssueReplyOpen(true);
+  }
+
+  async function submitIssueReply() {
+    if (!issueReplyIssue) return;
+    setIssueReplySaving(true);
     try {
-      const result = await updateIssueStatus(issueId, status);
+      const result = await updateIssueStatus(
+        issueReplyIssue.id,
+        issueReplyStatus,
+        issueReplyMessage,
+        employee.id,
+        employee.displayName || 'Management'
+      );
       if (result.success) {
-        toast({ title: 'Issue updated', description: `Status set to ${status.replace('_', ' ')}` });
+        toast({
+          title: 'Issue updated',
+          description: 'The employee was emailed and can see the update on their dashboard.',
+        });
+        setIssueReplyOpen(false);
+        setIssueReplyIssue(null);
         await loadIssues();
       } else {
         toast({ title: 'Failed to update', description: result.error, variant: 'destructive' });
       }
-    } catch (e: any) {
-      toast({ title: 'Error', description: e?.message || 'Failed to update issue', variant: 'destructive' });
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      toast({ title: 'Error', description: err?.message || 'Failed to update issue', variant: 'destructive' });
     } finally {
-      setIssueStatusUpdating(null);
+      setIssueReplySaving(false);
     }
   }
 
@@ -2725,7 +2749,10 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         <Card>
           <CardHeader>
             <CardTitle>Issues reported by employees</CardTitle>
-            <CardDescription>Who reported, when, and what. Management receives an email for each new issue.</CardDescription>
+            <CardDescription>
+              Who reported, when, and what. Use Update / notify to change status, add a message for the employee
+              (email + dashboard), and send an email automatically.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {issuesLoading ? (
@@ -2753,24 +2780,9 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                           }`}>
                           {issue.status.replace('_', ' ')}
                         </span>
-                        {issueStatusUpdating === issue.id ? (
-                          <LoadingSpinner size="sm" />
-                        ) : (
-                          <Select
-                            value={issue.status}
-                            onValueChange={(value) => handleUpdateIssueStatus(issue.id, value as IssueStatus)}
-                          >
-                            <SelectTrigger className="w-[140px] h-8">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="open">Open</SelectItem>
-                              <SelectItem value="in_progress">In progress</SelectItem>
-                              <SelectItem value="resolved">Resolved</SelectItem>
-                              <SelectItem value="closed">Closed</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
+                        <Button variant="outline" size="sm" onClick={() => openIssueReply(issue)}>
+                          Update / notify
+                        </Button>
                       </div>
                     </div>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{issue.description}</p>
@@ -2787,6 +2799,57 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={issueReplyOpen} onOpenChange={(open) => {
+        setIssueReplyOpen(open);
+        if (!open) setIssueReplyIssue(null);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update issue — notify employee</DialogTitle>
+            <DialogDescription>
+              Set the new status and optionally add a message. They will receive an email and see this on their dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          {issueReplyIssue && (
+            <div className="space-y-4 py-2">
+              <p className="text-sm font-medium text-foreground">{issueReplyIssue.title}</p>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={issueReplyStatus} onValueChange={(v) => setIssueReplyStatus(v as IssueStatus)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="in_progress">In progress</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="issue-reply-msg">Message to employee (optional)</Label>
+                <Textarea
+                  id="issue-reply-msg"
+                  rows={4}
+                  placeholder="Explain the next steps or resolution…"
+                  value={issueReplyMessage}
+                  onChange={(e) => setIssueReplyMessage(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIssueReplyOpen(false)} disabled={issueReplySaving}>
+              Cancel
+            </Button>
+            <Button onClick={submitIssueReply} disabled={issueReplySaving || !issueReplyIssue}>
+              {issueReplySaving ? <LoadingSpinner label="Sending" /> : 'Save & send email'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Management Reports & Insights */}
       <div className="space-y-6">
