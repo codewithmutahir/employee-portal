@@ -1,4 +1,5 @@
 import { Employee, AttendanceRecord, Compensation } from '@/types';
+import { resolvePortalTimeZone } from '@/lib/portal-timezone';
 
 export interface EnrichedAttendanceRow {
   employeeName: string;
@@ -12,7 +13,10 @@ export function enrichEmployeeAttendanceRows(
   scheduleHistory: ScheduleHistoryEntry[] | undefined,
   attendance: AttendanceRecord[]
 ): EnrichedAttendanceRow[] {
-  const allM = attendance.filter((r) => r.clockIn).map((r) => clockInToMinutes(r.clockIn!));
+  const timeZone = resolvePortalTimeZone();
+  const allM = attendance
+    .filter((r) => r.clockIn)
+    .map((r) => clockInToMinutes(r.clockIn!, timeZone));
   const current = {
     scheduleStart: employee.scheduleStart ?? null,
     scheduleEnd: employee.scheduleEnd ?? null,
@@ -27,6 +31,7 @@ export function enrichEmployeeAttendanceRows(
       scheduleStart: resolved.scheduleStart,
       dayOff: resolved.dayOff,
       allClockInMinutes: allM,
+      timeZone,
     });
     return {
       employeeName: employee.displayName || '',

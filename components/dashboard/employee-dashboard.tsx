@@ -121,6 +121,14 @@ export default function EmployeeDashboard({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
+  function getBrowserTimeZone(): string | undefined {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return undefined;
+    }
+  }
+
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load when employee changes
@@ -153,8 +161,8 @@ export default function EmployeeDashboard({
           : Promise.resolve([] as Issue[]);
 
       const [today, history, notesData, stats, monthly, descriptor, comp, leaves, issuesList] = await Promise.all([
-        getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart),
-        getAttendanceHistory(employee.id, 50, employee.scheduleStart),
+        getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart, getBrowserTimeZone()),
+        getAttendanceHistory(employee.id, 50, employee.scheduleStart, getBrowserTimeZone()),
         getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
         getEmployeeAttendanceStats(employee.id, 30),
         getEmployeeMonthlyStats(employee.id, 6),

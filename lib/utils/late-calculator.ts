@@ -4,6 +4,7 @@
  */
 
 import type { AttendanceStatus } from '@/types';
+import { clockInToMinutesInTimeZone, resolvePortalTimeZone } from '@/lib/portal-timezone';
 
 export type LateCategory = 'On Time' | 'Late' | 'Absent' | 'No Schedule';
 
@@ -19,6 +20,8 @@ export interface CalculateLateStatusParams {
   actualClockIn: string | null;
   recordDate: string;
   graceMinutes?: number;
+  /** IANA timezone for wall-clock comparison (e.g. Asia/Karachi). */
+  timeZone?: string;
   /** When true, this calendar day is the employee’s weekly day off (no scheduled shift). */
   isScheduledDayOff?: boolean;
 }
@@ -29,9 +32,9 @@ const MIN_CLOCK_INS_FOR_INFERENCE = 2;
 const EVENING_START_MINUTES = 18 * 60;
 const MORNING_END_MINUTES = 8 * 60;
 
-export function clockInToMinutes(clockIn: string): number {
-  const d = new Date(clockIn);
-  return d.getHours() * 60 + d.getMinutes();
+/** @param timeZone IANA zone; defaults via {@link resolvePortalTimeZone}. */
+export function clockInToMinutes(clockIn: string, timeZone?: string): number {
+  return clockInToMinutesInTimeZone(clockIn, resolvePortalTimeZone(timeZone));
 }
 
 function circularMinutesDistance(a: number, b: number): number {
@@ -91,6 +94,7 @@ export function calculateLateStatus(params: CalculateLateStatusParams): {
   lateCategory: LateCategory;
 } {
   const grace = params.graceMinutes ?? DEFAULT_ATTENDANCE_GRACE_MINUTES;
+  const tz = resolvePortalTimeZone(params.timeZone);
   const { scheduledStart, actualClockIn, isScheduledDayOff } = params;
 
   if (isScheduledDayOff) {
@@ -109,7 +113,7 @@ export function calculateLateStatus(params: CalculateLateStatusParams): {
   const hStr = parts[0] ?? '0';
   const mStr = parts[1] ?? '0';
   const scheduleMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
-  const clockInMinutes = clockInToMinutes(actualClockIn);
+  const clockInMinutes = clockInToMinutes(actualClockIn, tz);
   const diff = forwardMinutesOnCircle(scheduleMinutes, clockInMinutes);
   if (diff > 720) {
     return { isLate: false, lateMinutes: 0, lateCategory: 'On Time' };
@@ -149,6 +153,7 @@ export interface ComputeAttendanceAnalysisParams {
   dayOff: string | null | undefined;
   allClockInMinutes: number[];
   graceMinutes?: number;
+  timeZone?: string;
 }
 
 export interface AttendanceAnalysis {
@@ -165,6 +170,7 @@ export interface AttendanceAnalysis {
  */
 export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): AttendanceAnalysis {
   const grace = p.graceMinutes ?? DEFAULT_ATTENDANCE_GRACE_MINUTES;
+  const tz = resolvePortalTimeZone(p.timeZone);
   const onDayOff = isCalendarDayOff(p.date, p.dayOff);
   const scheduledStart = p.scheduleStart?.trim() || null;
 
@@ -197,7 +203,8 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
       scheduledStart,
       clockIn,
       p.allClockInMinutes,
-      grace
+      grace,
+      tz
     );
     return {
       status: 'Half Day',
@@ -220,7 +227,7 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
     };
   }
 
-  const core = computeLateCore(false, scheduledStart, clockIn, p.allClockInMinutes, grace);
+  const core = computeLateCore(false, scheduledStart, clockIn, p.allClockInMinutes, grace, tz);
   const status: AttendanceStatus = core.lateCategory === 'Late' ? 'Late In' : 'On Time';
   return {
     status,
@@ -273,7 +280,8 @@ function computeLateCore(
   scheduledStart: string | null,
   clockIn: string,
   allClockInMinutes: number[],
-  grace: number
+  grace: number,
+  timeZone: string
 ): { isLate: boolean; lateMinutes: number | null; lateCategory: LateCategory } {
   if (onDayOff) {
     return { isLate: false, lateMinutes: null, lateCategory: 'No Schedule' };
@@ -284,6 +292,7 @@ function computeLateCore(
       actualClockIn: clockIn,
       recordDate: '',
       graceMinutes: grace,
+      timeZone,
       isScheduledDayOff: false,
     });
   }

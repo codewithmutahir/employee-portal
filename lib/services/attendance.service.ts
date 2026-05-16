@@ -10,6 +10,7 @@ import { calculateHours } from '@/lib/utils';
 import { getDateKey, getYesterdayDateString } from './date-helpers';
 import { resolveScheduleForDate } from '@/lib/schedule-history';
 import { getScheduleHistory } from '@/lib/services/employees.service';
+import { resolvePortalTimeZone } from '@/lib/portal-timezone';
 import {
   clockInToMinutes,
   computeAttendanceAnalysis,
@@ -231,7 +232,11 @@ export async function endBreak(
   }
 }
 
-async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30): Promise<number[]> {
+async function fetchRecentClockInMinutes(
+  employeeId: string,
+  timeZone: string,
+  limit: number = 30
+): Promise<number[]> {
   const snapshot = await adminDb
     .collection('attendance')
     .where('employeeId', '==', employeeId)
@@ -245,7 +250,7 @@ async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30)
     const ci = data?.clockIn;
     if (ci && typeof (ci as { toDate?: () => Date }).toDate === 'function') {
       const iso = (ci as { toDate: () => Date }).toDate().toISOString();
-      mins.push(clockInToMinutes(iso));
+      mins.push(clockInToMinutes(iso, timeZone));
     }
   }
   return mins;
@@ -254,9 +259,11 @@ async function fetchRecentClockInMinutes(employeeId: string, limit: number = 30)
 export async function getTodayAttendance(
   employeeId: string,
   dateOverride?: string,
-  _scheduleStart?: string
+  _scheduleStart?: string,
+  clientTimeZone?: string
 ): Promise<AttendanceRecord | null> {
   try {
+    const timeZone = resolvePortalTimeZone(clientTimeZone);
     const dateKey = getDateKey(dateOverride);
     const [todayDoc, history, empDoc] = await Promise.all([
       adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`).get(),
@@ -289,7 +296,7 @@ export async function getTodayAttendance(
     }
 
     if (record) {
-      const mins = await fetchRecentClockInMinutes(employeeId, 30);
+      const mins = await fetchRecentClockInMinutes(employeeId, timeZone, 30);
       const resolved = resolveScheduleForDate(history, record.date, currentSchedule);
       const analysis = computeAttendanceAnalysis({
         date: record.date,
@@ -298,6 +305,7 @@ export async function getTodayAttendance(
         scheduleStart: resolved.scheduleStart,
         dayOff: resolved.dayOff,
         allClockInMinutes: mins,
+        timeZone,
       });
       record = { ...record, status: analysis.status };
     }
@@ -312,9 +320,11 @@ export async function getTodayAttendance(
 export async function getAttendanceHistory(
   employeeId: string,
   limit: number = 30,
-  _scheduleStart?: string
+  _scheduleStart?: string,
+  clientTimeZone?: string
 ): Promise<AttendanceRecord[]> {
   try {
+    const timeZone = resolvePortalTimeZone(clientTimeZone);
     const [snapshot, history, empDoc] = await Promise.all([
       adminDb
         .collection('attendance')
@@ -356,7 +366,7 @@ export async function getAttendanceHistory(
 
     const allClockInMinutes = rows
       .filter((r) => r.clockIn)
-      .map((r) => clockInToMinutes(r.clockIn!));
+      .map((r) => clockInToMinutes(r.clockIn!, timeZone));
 
     return rows.map(({ id, data, clockIn, clockOut, totalHours, getTs }) => {
       const resolved = resolveScheduleForDate(history, data.date as string, currentSchedule);
@@ -367,6 +377,7 @@ export async function getAttendanceHistory(
         scheduleStart: resolved.scheduleStart,
         dayOff: resolved.dayOff,
         allClockInMinutes,
+        timeZone,
       });
       return {
         id,
