@@ -1,6 +1,13 @@
 /**
  * Single source of truth for lateness rules (portal + exports).
- * Schedule-aware with 15-minute grace; optional history inference when no shift time.
+ *
+ * Universal rule (all shifts — morning, afternoon, overnight, etc.):
+ * - Use the employee’s scheduled shift **start** (HH:mm wall clock) for that day.
+ * - Clock-in **at or before** start → On Time.
+ * - Clock-in **more than** {@link DEFAULT_ATTENDANCE_GRACE_MINUTES} minutes after start → Late In.
+ * - Shift end time is not used for lateness.
+ *
+ * When no schedule is set, optional history inference applies the same grace window.
  */
 
 import type { AttendanceStatus } from '@/types';
@@ -85,6 +92,29 @@ function medianTimeOfDayFromExpandedCluster(cluster: number[]): number {
   return Math.round(m);
 }
 
+/** Parse HH:mm schedule start to minutes since midnight (0–1439). */
+export function scheduleStartToMinutes(scheduledStart: string): number {
+  const parts = scheduledStart.trim().split(':');
+  const hStr = parts[0] ?? '0';
+  const mStr = parts[1] ?? '0';
+  return parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
+}
+
+/**
+ * Minutes clock-in is after scheduled start (0 if early or on time).
+ * Same wall-clock day comparison — applies to every shift type.
+ */
+export function minutesAfterScheduledStart(
+  scheduledStart: string,
+  clockIn: string,
+  timeZone?: string
+): number {
+  const scheduleMinutes = scheduleStartToMinutes(scheduledStart);
+  const clockInMinutes = clockInToMinutes(clockIn, timeZone);
+  if (clockInMinutes <= scheduleMinutes) return 0;
+  return clockInMinutes - scheduleMinutes;
+}
+
 /**
  * Core rules (schedule + clock-in). Caller supplies `isScheduledDayOff` and resolved `scheduledStart`.
  */
@@ -109,17 +139,9 @@ export function calculateLateStatus(params: CalculateLateStatusParams): {
     return { isLate: false, lateMinutes: null, lateCategory: 'Absent' };
   }
 
-  const parts = scheduledStart.split(':');
-  const hStr = parts[0] ?? '0';
-  const mStr = parts[1] ?? '0';
-  const scheduleMinutes = parseInt(hStr, 10) * 60 + parseInt(mStr, 10);
-  const clockInMinutes = clockInToMinutes(actualClockIn, tz);
-  const diff = forwardMinutesOnCircle(scheduleMinutes, clockInMinutes);
-  if (diff > 720) {
-    return { isLate: false, lateMinutes: 0, lateCategory: 'On Time' };
-  }
-  if (diff > grace) {
-    return { isLate: true, lateMinutes: diff, lateCategory: 'Late' };
+  const minutesAfterStart = minutesAfterScheduledStart(scheduledStart, actualClockIn, tz);
+  if (minutesAfterStart > grace) {
+    return { isLate: true, lateMinutes: minutesAfterStart, lateCategory: 'Late' };
   }
   return { isLate: false, lateMinutes: 0, lateCategory: 'On Time' };
 }

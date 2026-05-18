@@ -8,8 +8,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { AttendanceRecord, BreakRecord } from '@/types';
 import { calculateHours } from '@/lib/utils';
 import { getDateKey, getYesterdayDateString } from './date-helpers';
-import { resolveScheduleForDate } from '@/lib/schedule-history';
-import { getScheduleHistory } from '@/lib/services/employees.service';
+import { resolveAttendanceSchedule } from '@/lib/schedule-history';
+import { getEmployeeDateRangeSchedules, getScheduleHistory } from '@/lib/services/employees.service';
 import { resolvePortalTimeZone } from '@/lib/portal-timezone';
 import {
   clockInToMinutes,
@@ -265,9 +265,10 @@ export async function getTodayAttendance(
   try {
     const timeZone = resolvePortalTimeZone(clientTimeZone);
     const dateKey = getDateKey(dateOverride);
-    const [todayDoc, history, empDoc] = await Promise.all([
+    const [todayDoc, history, dateRangeSchedules, empDoc] = await Promise.all([
       adminDb.collection('attendance').doc(`${employeeId}_${dateKey}`).get(),
       getScheduleHistory(employeeId),
+      getEmployeeDateRangeSchedules(employeeId),
       adminDb.collection('employees').doc(employeeId).get(),
     ]);
 
@@ -297,7 +298,12 @@ export async function getTodayAttendance(
 
     if (record) {
       const mins = await fetchRecentClockInMinutes(employeeId, timeZone, 30);
-      const resolved = resolveScheduleForDate(history, record.date, currentSchedule);
+      const resolved = resolveAttendanceSchedule(
+        history,
+        record.date,
+        currentSchedule,
+        dateRangeSchedules
+      );
       const analysis = computeAttendanceAnalysis({
         date: record.date,
         clockIn: record.clockIn,
@@ -325,7 +331,7 @@ export async function getAttendanceHistory(
 ): Promise<AttendanceRecord[]> {
   try {
     const timeZone = resolvePortalTimeZone(clientTimeZone);
-    const [snapshot, history, empDoc] = await Promise.all([
+    const [snapshot, history, dateRangeSchedules, empDoc] = await Promise.all([
       adminDb
         .collection('attendance')
         .where('employeeId', '==', employeeId)
@@ -333,6 +339,7 @@ export async function getAttendanceHistory(
         .limit(limit)
         .get(),
       getScheduleHistory(employeeId),
+      getEmployeeDateRangeSchedules(employeeId),
       adminDb.collection('employees').doc(employeeId).get(),
     ]);
 
@@ -369,7 +376,12 @@ export async function getAttendanceHistory(
       .map((r) => clockInToMinutes(r.clockIn!, timeZone));
 
     return rows.map(({ id, data, clockIn, clockOut, totalHours, getTs }) => {
-      const resolved = resolveScheduleForDate(history, data.date as string, currentSchedule);
+      const resolved = resolveAttendanceSchedule(
+        history,
+        data.date as string,
+        currentSchedule,
+        dateRangeSchedules
+      );
       const analysis = computeAttendanceAnalysis({
         date: data.date as string,
         clockIn,

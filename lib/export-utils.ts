@@ -1,4 +1,4 @@
-import { Employee, AttendanceRecord, Compensation } from '@/types';
+import { Employee, AttendanceRecord, Compensation, EmployeeDateRangeSchedule } from '@/types';
 import { resolvePortalTimeZone } from '@/lib/portal-timezone';
 
 export interface EnrichedAttendanceRow {
@@ -11,7 +11,8 @@ export interface EnrichedAttendanceRow {
 export function enrichEmployeeAttendanceRows(
   employee: Employee,
   scheduleHistory: ScheduleHistoryEntry[] | undefined,
-  attendance: AttendanceRecord[]
+  attendance: AttendanceRecord[],
+  dateRangeSchedules?: EmployeeDateRangeSchedule[] | null
 ): EnrichedAttendanceRow[] {
   const timeZone = resolvePortalTimeZone();
   const allM = attendance
@@ -23,7 +24,12 @@ export function enrichEmployeeAttendanceRows(
     dayOff: employee.dayOff ?? null,
   };
   return attendance.map((record) => {
-    const resolved = resolveScheduleForDate(scheduleHistory, String(record.date), current);
+    const resolved = resolveAttendanceSchedule(
+      scheduleHistory,
+      String(record.date),
+      current,
+      dateRangeSchedules
+    );
     const analysis = computeAttendanceAnalysis({
       date: String(record.date),
       clockIn: record.clockIn,
@@ -142,6 +148,7 @@ import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { salaryPerDayForMonth, workingDaysInMonth } from '@/lib/payroll-helpers';
 import {
   ScheduleHistoryEntry,
+  resolveAttendanceSchedule,
   resolveScheduleForDate,
   resolveScheduleForMonth,
 } from '@/lib/schedule-history';
@@ -166,6 +173,7 @@ interface EmployeeExportData {
   compensation: Compensation | null;
   attendance: AttendanceRecord[];
   scheduleHistory?: ScheduleHistoryEntry[];
+  dateRangeSchedules?: EmployeeDateRangeSchedule[];
 }
 
 const MONTH_NAMES = [
@@ -449,7 +457,8 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
     const enrichedPrint = enrichEmployeeAttendanceRows(
       employee,
       data.scheduleHistory,
-      recentDesc
+      recentDesc,
+      data.dateRangeSchedules
     );
 
     output += 'RECENT ATTENDANCE (Last 30 Records)\n';
@@ -565,7 +574,12 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
 
   data.forEach((employeeData) => {
     const { employee, attendance, scheduleHistory } = employeeData;
-    const enriched = enrichEmployeeAttendanceRows(employee, scheduleHistory, attendance);
+    const enriched = enrichEmployeeAttendanceRows(
+      employee,
+      scheduleHistory,
+      attendance,
+      employeeData.dateRangeSchedules
+    );
 
     enriched.forEach(({ record, analysis }) => {
       const date = record.date || '';
@@ -584,7 +598,12 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
   });
 
   const allEnriched = data.flatMap((empData) =>
-    enrichEmployeeAttendanceRows(empData.employee, empData.scheduleHistory, empData.attendance)
+    enrichEmployeeAttendanceRows(
+      empData.employee,
+      empData.scheduleHistory,
+      empData.attendance,
+      empData.dateRangeSchedules
+    )
   );
   csv += formatLateSummaryBlock(aggregateLateSummary(allEnriched));
 
@@ -639,7 +658,8 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   const enrichedRows = enrichEmployeeAttendanceRows(
     employee,
     data.scheduleHistory,
-    sortedAttendance
+    sortedAttendance,
+    data.dateRangeSchedules
   );
 
   const totalActualHours = sortedAttendance.reduce((s, r) => s + (r.totalHours || 0), 0);
@@ -868,7 +888,8 @@ export function formatLateReportCSV(data: EmployeeExportData[]): string {
     const enriched = enrichEmployeeAttendanceRows(
       empData.employee,
       empData.scheduleHistory,
-      empData.attendance
+      empData.attendance,
+      empData.dateRangeSchedules
     );
     const sorted = [...enriched].sort((a, b) =>
       String(a.record.date).localeCompare(String(b.record.date))
@@ -931,7 +952,8 @@ export function formatAllEmployeesDataAsTimecardCSV(data: EmployeeExportData[]):
       ...enrichEmployeeAttendanceRows(
         employeeData.employee,
         employeeData.scheduleHistory,
-        employeeData.attendance
+        employeeData.attendance,
+        employeeData.dateRangeSchedules
       )
     );
 

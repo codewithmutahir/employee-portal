@@ -1,3 +1,6 @@
+import type { EmployeeDateRangeSchedule, ScheduleWeekdayKey } from '@/types';
+import { dominantScheduleForDate, formatWeekdayLabel, SCHEDULE_WEEKDAYS } from '@/lib/employee-schedules';
+
 /**
  * Schedule history helpers.
  *
@@ -127,4 +130,63 @@ export function schedulesEqual(a: ResolvedSchedule, b: ResolvedSchedule): boolea
 
 function norm(v: string | null | undefined): string {
   return (v ?? '').trim();
+}
+
+const WEEKDAY_KEYS_BY_JS_DAY: ScheduleWeekdayKey[] = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+];
+
+/** Weekday key for a YYYY-MM-DD date (local calendar components). */
+export function weekdayKeyFromYmd(dateYmd: string): ScheduleWeekdayKey | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd.trim())) return null;
+  const [y, m, d] = dateYmd.split('-').map(Number);
+  const dt = new Date(y!, (m || 1) - 1, d || 1);
+  if (isNaN(dt.getTime())) return null;
+  return WEEKDAY_KEYS_BY_JS_DAY[dt.getDay()] ?? null;
+}
+
+function firstInactiveWeekdayLabel(days: EmployeeDateRangeSchedule['days']): string | null {
+  const off = SCHEDULE_WEEKDAYS.find((k) => !days[k].active);
+  return off ? formatWeekdayLabel(off) : null;
+}
+
+/**
+ * Resolve schedule for lateness on a specific date: per-weekday shift from the
+ * active date-range schedule when present, otherwise schedule history + legacy fields.
+ */
+export function resolveAttendanceSchedule(
+  history: ScheduleHistoryEntry[] | null | undefined,
+  dateYmd: string,
+  current: ResolvedSchedule,
+  dateRangeSchedules?: EmployeeDateRangeSchedule[] | null
+): ResolvedSchedule {
+  const ref = /^\d{4}-\d{2}-\d{2}$/.test(dateYmd.trim())
+    ? new Date(`${dateYmd}T12:00:00`)
+    : new Date(dateYmd);
+  const dominant = dominantScheduleForDate(dateRangeSchedules ?? [], ref);
+  if (dominant) {
+    const key = weekdayKeyFromYmd(dateYmd);
+    if (key) {
+      const day = dominant.days[key];
+      if (!day.active) {
+        return {
+          scheduleStart: null,
+          scheduleEnd: null,
+          dayOff: formatWeekdayLabel(key),
+        };
+      }
+      return {
+        scheduleStart: day.shiftStart,
+        scheduleEnd: day.shiftEnd,
+        dayOff: firstInactiveWeekdayLabel(dominant.days),
+      };
+    }
+  }
+  return resolveScheduleForDate(history, dateYmd, current);
 }

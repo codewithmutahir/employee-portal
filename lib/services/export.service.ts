@@ -6,8 +6,9 @@
 import { adminDb } from '@/lib/firebase/admin';
 import { Employee, AttendanceRecord, Compensation } from '@/types';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
-import { getScheduleHistory } from './employees.service';
+import { getEmployeeDateRangeSchedules, getScheduleHistory } from './employees.service';
 import { ScheduleHistoryEntry } from '@/lib/schedule-history';
+import type { EmployeeDateRangeSchedule } from '@/types';
 
 function toISOString(value: unknown): string | undefined {
   if (!value) return undefined;
@@ -30,9 +31,10 @@ export async function exportEmployeeData(employeeId: string): Promise<{
   compensation: Compensation | null;
   attendance: AttendanceRecord[];
   scheduleHistory: ScheduleHistoryEntry[];
+  dateRangeSchedules: EmployeeDateRangeSchedule[];
 } | null> {
   try {
-    const [employeeDoc, compensationDoc, attendanceSnapshot, scheduleHistory] =
+    const [employeeDoc, compensationDoc, attendanceSnapshot, scheduleHistory, dateRangeSchedules] =
       await Promise.all([
         adminDb.collection('employees').doc(employeeId).get(),
         adminDb.collection('compensation').doc(employeeId).get(),
@@ -43,6 +45,7 @@ export async function exportEmployeeData(employeeId: string): Promise<{
           .limit(365)
           .get(),
         getScheduleHistory(employeeId),
+        getEmployeeDateRangeSchedules(employeeId),
       ]);
 
     if (!employeeDoc.exists) {
@@ -116,7 +119,7 @@ export async function exportEmployeeData(employeeId: string): Promise<{
       } as AttendanceRecord;
     });
 
-    return { employee, compensation, attendance, scheduleHistory };
+    return { employee, compensation, attendance, scheduleHistory, dateRangeSchedules };
   } catch (error: unknown) {
     console.error('Export employee data error:', error);
     return null;
@@ -137,6 +140,7 @@ export async function exportAllEmployeesData(): Promise<
     compensation: Compensation | null;
     attendance: AttendanceRecord[];
     scheduleHistory: ScheduleHistoryEntry[];
+    dateRangeSchedules: EmployeeDateRangeSchedule[];
   }> | null
 > {
   try {
