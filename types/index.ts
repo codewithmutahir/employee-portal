@@ -147,6 +147,33 @@ export interface AttendanceRecord {
   breaks: BreakRecord[];
   totalHours?: number; // Calculated
   status?: AttendanceStatus; // Computed and returned by the API
+  /**
+   * Minutes by which the clock-in passed the scheduled start. Useful for
+   * payroll / HR who want the raw delta. Null when no schedule applied or
+   * the employee was absent.
+   */
+  lateMinutes?: number | null;
+  /**
+   * Minutes by which the clock-in went **past the grace window** — this is
+   * the number the employee actually sees on the dashboard. A clock-in within
+   * grace returns 0, not null. Null only when there was no schedule to
+   * compare against.
+   */
+  lateMinutesAfterGrace?: number | null;
+  /** Grace window (minutes) applied when computing late status. */
+  graceMinutes?: number;
+  /**
+   * Scheduled start (`HH:mm`) that was used for late detection on this date.
+   * Lets the UI render "Scheduled 7:00 AM" alongside the actual clock-in so
+   * misconfigured schedules are easy to spot.
+   */
+  resolvedScheduledStart?: string | null;
+  /**
+   * True when the gap between scheduled start and clock-in is large enough
+   * (>= 4 hours) that the schedule is almost certainly wrong (e.g. AM/PM
+   * mix-up) rather than the employee being genuinely late by hours.
+   */
+  scheduleMismatchSuspected?: boolean;
   editedBy?: string; // User ID - tracks who edited (employee or management)
   editedAt?: string; // ISO timestamp
   isEditedByManagement: boolean;

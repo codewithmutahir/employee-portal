@@ -21,6 +21,7 @@ import {
   TenureInfo,
 } from '@/types';
 import { resolveUserRole } from '@/lib/roles';
+import { wrapFirebaseError } from '@/lib/firebase/errors';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
 import { sendWelcomeEmail } from './email.service';
 import { sendPushToEmployee } from './push.service';
@@ -549,7 +550,7 @@ export async function getEmployee(employeeId: string): Promise<Employee | null> 
     } as Employee;
   } catch (error: unknown) {
     console.error('Get employee error:', error);
-    return null;
+    throw wrapFirebaseError(error);
   }
 }
 
@@ -598,7 +599,7 @@ export async function getAllEmployees(
     });
   } catch (error: unknown) {
     console.error('Error fetching employees:', error);
-    throw error;
+    throw wrapFirebaseError(error);
   }
 }
 

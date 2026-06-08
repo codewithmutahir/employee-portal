@@ -38,6 +38,14 @@ export const DEFAULT_ATTENDANCE_GRACE_MINUTES = 15;
 const MIN_CLOCK_INS_FOR_INFERENCE = 2;
 const EVENING_START_MINUTES = 18 * 60;
 const MORNING_END_MINUTES = 8 * 60;
+/**
+ * When a clock-in lands this many minutes past the scheduled start, the gap is
+ * almost certainly a configuration problem (e.g. schedule saved as 07:00 AM
+ * while the employee actually works the 7:00 PM shift) rather than ordinary
+ * tardiness. We surface a softer "schedule mismatch" hint to the UI instead
+ * of pretending the employee is hundreds of minutes late.
+ */
+export const SCHEDULE_MISMATCH_THRESHOLD_MINUTES = 4 * 60;
 
 /** @param timeZone IANA zone; defaults via {@link resolvePortalTimeZone}. */
 export function clockInToMinutes(clockIn: string, timeZone?: string): number {
@@ -182,7 +190,23 @@ export interface AttendanceAnalysis {
   status: AttendanceStatus;
   exportStatus: ExportAttendanceStatusLabel;
   isLate: boolean;
+  /** Minutes past scheduled start (for payroll / HR-facing reports). */
   lateMinutes: number | null;
+  /**
+   * Minutes by which the clock-in went **past the grace window** — i.e. the
+   * "real" tardiness an employee experiences. Returns 0 (not null) when the
+   * employee is within grace, so it's safe for arithmetic. Null only when the
+   * status is Absent / No Schedule.
+   */
+  lateMinutesAfterGrace: number | null;
+  /** Grace window (minutes) applied to this record. */
+  graceMinutes: number;
+  /**
+   * True when the gap between scheduled start and clock-in is large enough
+   * (>= {@link SCHEDULE_MISMATCH_THRESHOLD_MINUTES}) that the schedule is
+   * likely misconfigured rather than the employee genuinely being late.
+   */
+  scheduleMismatchSuspected: boolean;
   lateCategory: LateCategory;
   scheduledStartDisplay: string | null;
 }
@@ -190,6 +214,25 @@ export interface AttendanceAnalysis {
 /**
  * Full portal/export analysis: day-off, half-day, schedule, then history inference.
  */
+/**
+ * Convert raw minutes-after-start into "minutes past grace". The two are
+ * different on purpose: payroll cares about minutes from scheduled start;
+ * employees only see the part that actually counts as tardiness.
+ */
+function deriveAfterGrace(lateMinutes: number | null, grace: number): number | null {
+  if (lateMinutes === null || lateMinutes === undefined) return null;
+  return Math.max(0, lateMinutes - grace);
+}
+
+function isScheduleMismatchSuspected(
+  scheduledStart: string | null,
+  lateMinutes: number | null
+): boolean {
+  if (!scheduledStart) return false;
+  if (lateMinutes === null || lateMinutes === undefined) return false;
+  return lateMinutes >= SCHEDULE_MISMATCH_THRESHOLD_MINUTES;
+}
+
 export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): AttendanceAnalysis {
   const grace = p.graceMinutes ?? DEFAULT_ATTENDANCE_GRACE_MINUTES;
   const tz = resolvePortalTimeZone(p.timeZone);
@@ -203,6 +246,9 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
         exportStatus: 'No Schedule',
         isLate: false,
         lateMinutes: null,
+        lateMinutesAfterGrace: null,
+        graceMinutes: grace,
+        scheduleMismatchSuspected: false,
         lateCategory: 'No Schedule',
         scheduledStartDisplay: scheduledStart,
       };
@@ -212,6 +258,9 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
       exportStatus: 'Absent',
       isLate: false,
       lateMinutes: null,
+      lateMinutesAfterGrace: null,
+      graceMinutes: grace,
+      scheduleMismatchSuspected: false,
       lateCategory: 'Absent',
       scheduledStartDisplay: scheduledStart,
     };
@@ -233,6 +282,9 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
       exportStatus: 'Half Day',
       isLate: base.isLate,
       lateMinutes: base.lateMinutes,
+      lateMinutesAfterGrace: deriveAfterGrace(base.lateMinutes, grace),
+      graceMinutes: grace,
+      scheduleMismatchSuspected: isScheduleMismatchSuspected(scheduledStart, base.lateMinutes),
       lateCategory: base.lateCategory,
       scheduledStartDisplay: scheduledStart,
     };
@@ -244,6 +296,9 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
       exportStatus: 'No Schedule',
       isLate: false,
       lateMinutes: null,
+      lateMinutesAfterGrace: null,
+      graceMinutes: grace,
+      scheduleMismatchSuspected: false,
       lateCategory: 'No Schedule',
       scheduledStartDisplay: scheduledStart,
     };
@@ -256,6 +311,9 @@ export function computeAttendanceAnalysis(p: ComputeAttendanceAnalysisParams): A
     exportStatus: core.lateCategory === 'Late' ? 'Late' : 'On Time',
     isLate: core.isLate,
     lateMinutes: core.lateMinutes,
+    lateMinutesAfterGrace: deriveAfterGrace(core.lateMinutes, grace),
+    graceMinutes: grace,
+    scheduleMismatchSuspected: isScheduleMismatchSuspected(scheduledStart, core.lateMinutes),
     lateCategory: core.lateCategory,
     scheduledStartDisplay: scheduledStart,
   };

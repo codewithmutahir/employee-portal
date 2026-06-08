@@ -12,7 +12,13 @@ import {
 } from '@/lib/export-utils';
 import { useToast } from '@/components/ui/use-toast';
 import { Printer, FileText, FileSpreadsheet, Calendar, ChevronDown, AlertTriangle } from 'lucide-react';
-import type { Employee, Compensation, AttendanceRecord } from '@/types';
+import type {
+  Employee,
+  Compensation,
+  AttendanceRecord,
+  CompensationHistoryEvent,
+  EmployeeDateRangeSchedule,
+} from '@/types';
 import type { ScheduleHistoryEntry } from '@/lib/schedule-history';
 
 interface ExportDialogProps {
@@ -26,6 +32,13 @@ interface ExportData {
   compensation: Compensation | null;
   attendance: AttendanceRecord[];
   scheduleHistory?: ScheduleHistoryEntry[];
+  dateRangeSchedules?: EmployeeDateRangeSchedule[];
+  /**
+   * Compensation events ordered newest-first by the service. The exporter
+   * needs these to compute per-day salary in the CSV/print output, so the
+   * dialog must preserve them when caching and month-filtering.
+   */
+  compensationHistory?: CompensationHistoryEvent[];
 }
 
 const MONTH_NAMES = [
@@ -43,13 +56,20 @@ const MONTH_NAMES = [
   'December',
 ];
 
+/**
+ * Month key is `YYYY-MM` using the calendar month (1 = January, 12 = December).
+ * Earlier this stored a 0-indexed month, which leaked into the export filename
+ * (e.g. May data was downloaded as `..._timecard_2026_04.csv`). Storing the
+ * real calendar month makes the dropdown selection, filter logic, and filename
+ * agree with what users expect.
+ */
 function recordMonthKey(record: { date?: string }): string | null {
   const dateStr = String(record?.date || '');
   const m = /^(\d{4})-(\d{2})/.exec(dateStr);
-  if (m) return `${m[1]}-${String(Number(m[2]) - 1).padStart(2, '0')}`;
+  if (m) return `${m[1]}-${m[2]}`;
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function monthKeyToLabel(key: string): string {
@@ -57,7 +77,9 @@ function monthKeyToLabel(key: string): string {
   const y = Number(yStr);
   const mi = Number(mStr);
   if (isNaN(y) || isNaN(mi)) return key;
-  return `${MONTH_NAMES[mi]} ${y}`;
+  const idx = mi - 1;
+  if (idx < 0 || idx >= MONTH_NAMES.length) return key;
+  return `${MONTH_NAMES[idx]} ${y}`;
 }
 
 function uniqueMonthsFromAttendance(records: AttendanceRecord[]): string[] {

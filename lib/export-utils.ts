@@ -1,5 +1,15 @@
-import { Employee, AttendanceRecord, Compensation, EmployeeDateRangeSchedule } from '@/types';
+import {
+  Employee,
+  AttendanceRecord,
+  Compensation,
+  CompensationHistoryEvent,
+  EmployeeDateRangeSchedule,
+} from '@/types';
 import { resolvePortalTimeZone } from '@/lib/portal-timezone';
+import {
+  salaryEffectiveOn,
+  proratedMonthlySalary,
+} from '@/lib/utils/compensation-effective';
 
 export interface EnrichedAttendanceRow {
   employeeName: string;
@@ -174,6 +184,8 @@ interface EmployeeExportData {
   attendance: AttendanceRecord[];
   scheduleHistory?: ScheduleHistoryEntry[];
   dateRangeSchedules?: EmployeeDateRangeSchedule[];
+  /** Optional — when provided, per-row wage rates use the salary effective on each work day. */
+  compensationHistory?: CompensationHistoryEvent[];
 }
 
 const MONTH_NAMES = [
@@ -191,6 +203,50 @@ const MONTH_NAMES = [
   'December',
 ];
 
+/** Sort and dedupe compensation events for display in report headers. */
+function sortedCompensationHistory(
+  history: CompensationHistoryEvent[] | undefined
+): CompensationHistoryEvent[] {
+  if (!history || history.length === 0) return [];
+  return [...history].sort(
+    (a, b) =>
+      new Date(a.effectiveDate).getTime() - new Date(b.effectiveDate).getTime()
+  );
+}
+
+/**
+ * Display label for a month's monthly salary. Renders "old → new" when the
+ * salary changed inside the month so the reader sees both numbers.
+ */
+function formatMonthlySalaryDisplay(
+  currency: string,
+  month: MonthlyBreakdown
+): string {
+  if (
+    month.salaryChangedMidMonth &&
+    month.monthlySalaryStart !== null &&
+    month.monthlySalaryStart !== month.monthlySalary
+  ) {
+    return `${currency} ${month.monthlySalaryStart.toLocaleString()} → ${month.monthlySalary.toLocaleString()}`;
+  }
+  return `${currency} ${month.monthlySalary.toLocaleString()}`;
+}
+
+/** Display label for a month's per-day rate (renders "old → new" on change). */
+function formatPerDayRateDisplay(
+  currency: string,
+  month: MonthlyBreakdown
+): string {
+  if (
+    month.salaryChangedMidMonth &&
+    month.perDayRateStart !== null &&
+    month.perDayRateStart !== month.perDayRate
+  ) {
+    return `${currency} ${month.perDayRateStart.toLocaleString()} → ${month.perDayRate.toLocaleString()}`;
+  }
+  return `${currency} ${month.perDayRate.toLocaleString()}`;
+}
+
 interface MonthlyBreakdown {
   year: number;
   monthIndex: number;
@@ -200,16 +256,27 @@ interface MonthlyBreakdown {
   /** Total physical days with any attendance record (including day-off attendance), kept for context. */
   daysAttendedRaw: number;
   workingDaysInMonth: number;
+  /** Monthly salary in effect at the END of this month (dominant rate). */
   monthlySalary: number;
+  /**
+   * Monthly salary in effect at the START of the month — only populated when
+   * the salary changed mid-month, so consumers can render "X → Y".
+   */
+  monthlySalaryStart: number | null;
   perDayRate: number;
+  perDayRateStart: number | null;
+  /** True when the salary changed mid-month and `monthlySalaryStart` is set. */
+  salaryChangedMidMonth: boolean;
   estimatedWages: number;
   totalHours: number;
   dayOff: string;
 }
 
 interface MonthMetaForRecord {
+  /** Per-day rate based on the salary that was effective on THIS record's date. */
   perDayRate: number;
   workingDays: number;
+  /** Salary that was effective on this record's date. */
   monthlySalary: number;
   monthLabel: string;
   dayOff: string;
@@ -289,11 +356,29 @@ function recordIsAttended(record: AttendanceRecord): boolean {
  * the schedule that was active at the start of that month. Months with no
  * attendance are excluded entirely (item #2 of the spec).
  */
+/**
+ * Stable key for {@link buildMonthlyBreakdown}'s per-record lookup.
+ *
+ * Earlier this map was keyed by the live `AttendanceRecord` object reference,
+ * which silently broke once {@link enrichEmployeeAttendanceRows} returned
+ * spread copies (`{ ...record, status }`). The CSV exporter would then look
+ * the new object up, miss every time, fall through to a `perDayRate = 0`
+ * branch, and print `"N/A (add monthly salary in compensation)"` for every
+ * row even when compensation was set. Keying by the Firestore doc id (or
+ * date+employee fallback) keeps the lookup stable across copies.
+ */
+function recordLookupKey(record: AttendanceRecord): string {
+  if (record.id) return record.id;
+  const empPart = record.employeeId ?? '';
+  const datePart = record.date ?? '';
+  return `${empPart}__${datePart}`;
+}
+
 function buildMonthlyBreakdown(
   data: EmployeeExportData
-): { months: MonthlyBreakdown[]; perRecordMeta: Map<AttendanceRecord, MonthMetaForRecord> } {
-  const { employee, compensation, attendance, scheduleHistory } = data;
-  const monthlySalary =
+): { months: MonthlyBreakdown[]; perRecordMeta: Map<string, MonthMetaForRecord> } {
+  const { employee, compensation, attendance, scheduleHistory, compensationHistory } = data;
+  const fallbackSalary =
     compensation?.salary !== undefined && compensation?.salary !== null
       ? Number(compensation.salary) || 0
       : 0;
@@ -308,7 +393,7 @@ function buildMonthlyBreakdown(
   }
 
   const months: MonthlyBreakdown[] = [];
-  const perRecordMeta = new Map<AttendanceRecord, MonthMetaForRecord>();
+  const perRecordMeta = new Map<string, MonthMetaForRecord>();
 
   for (const [, records] of groups) {
     const first = parseRecordDate(records[0]!)!;
@@ -323,7 +408,34 @@ function buildMonthlyBreakdown(
     const dayOff = (schedule.dayOff as string) || employee.dayOff || 'Sunday';
 
     const wd = workingDaysInMonth(year, monthIndex, dayOff);
-    const perDay = salaryPerDayForMonth(monthlySalary, year, monthIndex, dayOff);
+    const monthLabel = `${MONTH_NAMES[monthIndex]} ${year}`;
+
+    // Salary in effect at the start vs end of this month — drives the
+    // "salary changed mid-month" UI in the monthly summary row.
+    const monthStart = new Date(year, monthIndex, 1);
+    const monthEnd = new Date(year, monthIndex + 1, 0);
+    const salaryAtStart = salaryEffectiveOn(compensationHistory, fallbackSalary, monthStart);
+    const salaryAtEnd = salaryEffectiveOn(compensationHistory, fallbackSalary, monthEnd);
+    const salaryChangedMidMonth = salaryAtStart !== salaryAtEnd;
+
+    // Per-record meta uses the salary that was effective on THAT specific
+    // day, so the CSV per-row wage rate stays accurate across raises.
+    for (const r of records) {
+      const recordDate = parseRecordDate(r) ?? first;
+      const effectiveSalary = salaryEffectiveOn(
+        compensationHistory,
+        fallbackSalary,
+        recordDate
+      );
+      const recordPerDay = salaryPerDayForMonth(effectiveSalary, year, monthIndex, dayOff);
+      perRecordMeta.set(recordLookupKey(r), {
+        perDayRate: recordPerDay,
+        workingDays: wd,
+        monthlySalary: effectiveSalary,
+        monthLabel,
+        dayOff,
+      });
+    }
 
     const payableAttended = records.filter(
       (r) => recordIsAttended(r) && !isOnDayOff(r, dayOff)
@@ -331,21 +443,20 @@ function buildMonthlyBreakdown(
     const daysAttended = Math.min(payableAttended, wd);
     const daysAttendedRaw = records.filter(recordIsAttended).length;
     const totalHours = records.reduce((sum, r) => sum + (r.totalHours || 0), 0);
-    const monthLabel = `${MONTH_NAMES[monthIndex]} ${year}`;
 
-    const meta: MonthMetaForRecord = {
-      perDayRate: perDay,
-      workingDays: wd,
-      monthlySalary,
-      monthLabel,
-      dayOff,
-    };
-    for (const r of records) perRecordMeta.set(r, meta);
+    const perDayEnd = salaryPerDayForMonth(salaryAtEnd, year, monthIndex, dayOff);
+    const perDayStart = salaryChangedMidMonth
+      ? salaryPerDayForMonth(salaryAtStart, year, monthIndex, dayOff)
+      : null;
 
-    // Estimated Wages mirrors the portal's salary slip: the employee's full
-    // monthly salary for any month they have attendance. Per-day rate and
-    // days-attended numbers stay as informational context. Day-by-day
-    // deductions (leaves/late) are tracked separately on the dashboard.
+    // Estimated Wages preserves the existing "full monthly salary if
+    // attended" semantic. When salary changed mid-month, we prorate per
+    // working day so the figure reflects the actual blend of old and new
+    // rates over that month.
+    const estimatedWages = salaryChangedMidMonth
+      ? proratedMonthlySalary(compensationHistory, fallbackSalary, year, monthIndex, dayOff, wd)
+      : salaryAtEnd;
+
     months.push({
       year,
       monthIndex,
@@ -353,9 +464,12 @@ function buildMonthlyBreakdown(
       daysAttended,
       daysAttendedRaw,
       workingDaysInMonth: wd,
-      monthlySalary,
-      perDayRate: perDay,
-      estimatedWages: monthlySalary,
+      monthlySalary: salaryAtEnd,
+      monthlySalaryStart: salaryChangedMidMonth ? salaryAtStart : null,
+      perDayRate: perDayEnd,
+      perDayRateStart: perDayStart,
+      salaryChangedMidMonth,
+      estimatedWages,
       totalHours,
       dayOff,
     });
@@ -398,7 +512,7 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
     output += 'COMPENSATION\n';
     output += '----------------------------------------\n';
     if (compensation.salary !== undefined && compensation.salary !== null) {
-      output += `Monthly Salary: ${cur} ${Number(compensation.salary).toLocaleString()}\n`;
+      output += `Current Monthly Salary: ${cur} ${Number(compensation.salary).toLocaleString()}\n`;
     }
     if (compensation.allowance !== undefined && compensation.allowance !== null) {
       output += `Allowance: ${cur} ${Number(compensation.allowance).toLocaleString()}\n`;
@@ -408,6 +522,38 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
     }
     if (!compensation.salary && !compensation.allowance && !compensation.bonus) {
       output += 'No compensation data available\n';
+    }
+    output += '\n';
+  }
+
+  const sortedHistory = sortedCompensationHistory(data.compensationHistory);
+  if (sortedHistory.length > 0) {
+    output += 'SALARY CHANGES\n';
+    output += '----------------------------------------\n';
+    output += 'Effective Date | Type            | Previous     | New          | Change   | Status\n';
+    output += '---------------|-----------------|--------------|--------------|----------|------------\n';
+    for (const evt of sortedHistory) {
+      const date = safeFormatDate(evt.effectiveDate, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+      }).padEnd(14);
+      const type = (evt.eventType || '').padEnd(15);
+      const prev = (
+        evt.previousSalary === null
+          ? '—'
+          : `${cur} ${evt.previousSalary.toLocaleString()}`
+      ).padEnd(12);
+      const next = (
+        evt.newSalary === null ? '—' : `${cur} ${evt.newSalary.toLocaleString()}`
+      ).padEnd(12);
+      const change = (
+        evt.percentChange === null ? '—' : `${evt.percentChange > 0 ? '+' : ''}${evt.percentChange}%`
+      ).padEnd(8);
+      const statusBits: string[] = [evt.status];
+      if (evt.isRetroactive) statusBits.push('retroactive');
+      if (evt.isAmended) statusBits.push('amended');
+      output += `${date} | ${type} | ${prev} | ${next} | ${change} | ${statusBits.join(', ')}\n`;
     }
     output += '\n';
   }
@@ -433,19 +579,27 @@ export function formatEmployeeDataForPrint(data: EmployeeExportData): string {
   if (months.length > 0) {
     output += 'MONTHLY BREAKDOWN\n';
     output += '----------------------------------------\n';
-    output += 'Month            | Days Attended | Working Days | Per-Day Rate | Estimated Wages\n';
-    output += '-----------------|---------------|--------------|--------------|-----------------\n';
+    output +=
+      'Month            | Days Attended | Working Days | Monthly Salary               | Per-Day Rate                 | Estimated Wages\n';
+    output +=
+      '-----------------|---------------|--------------|------------------------------|------------------------------|-----------------\n';
     months.forEach((m) => {
       const monthCol = m.monthLabel.padEnd(16);
       const daysCol = String(m.daysAttended).padStart(13);
       const wdCol = String(m.workingDaysInMonth).padStart(12);
-      const rateCol = `${cur} ${m.perDayRate.toLocaleString()}`.padStart(12);
+      const salaryCol = formatMonthlySalaryDisplay(cur, m).padEnd(28);
+      const rateCol = formatPerDayRateDisplay(cur, m).padEnd(28);
       const wagesCol = `${cur} ${m.estimatedWages.toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`.padStart(15);
-      output += `${monthCol} | ${daysCol} | ${wdCol} | ${rateCol} | ${wagesCol}\n`;
+      output += `${monthCol} | ${daysCol} | ${wdCol} | ${salaryCol} | ${rateCol} | ${wagesCol}\n`;
     });
+    if (months.some((m) => m.salaryChangedMidMonth)) {
+      output += '\n';
+      output += '  * "→" indicates the salary changed mid-month; left value was effective at the start, right value at the end.\n';
+      output += '  * Estimated wages for those months are prorated across the salary change so the full-month figure reflects both rates.\n';
+    }
     output += '\n';
   }
 
@@ -514,13 +668,39 @@ export function formatEmployeeDataAsCSV(data: EmployeeExportData): string {
     csv += 'COMPENSATION\n';
     csv += 'Field,Value\n';
     if (compensation.salary !== undefined && compensation.salary !== null) {
-      csv += `Monthly Salary,"${cur} ${Number(compensation.salary).toLocaleString()}"\n`;
+      csv += `Current Monthly Salary,"${cur} ${Number(compensation.salary).toLocaleString()}"\n`;
     }
     if (compensation.allowance !== undefined && compensation.allowance !== null) {
       csv += `Allowance,"${cur} ${Number(compensation.allowance).toLocaleString()}"\n`;
     }
     if (compensation.bonus !== undefined && compensation.bonus !== null) {
       csv += `Bonus,"${cur} ${Number(compensation.bonus).toLocaleString()}"\n`;
+    }
+    csv += '\n';
+  }
+
+  const sortedHistory = sortedCompensationHistory(data.compensationHistory);
+  if (sortedHistory.length > 0) {
+    csv += 'SALARY CHANGES\n';
+    csv += 'Effective Date,Event Type,Previous Salary,New Salary,Change %,Status,Reason\n';
+    for (const evt of sortedHistory) {
+      const date = safeFormatDate(evt.effectiveDate, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+      });
+      const prev =
+        evt.previousSalary === null ? '' : `${cur} ${evt.previousSalary.toLocaleString()}`;
+      const next = evt.newSalary === null ? '' : `${cur} ${evt.newSalary.toLocaleString()}`;
+      const change =
+        evt.percentChange === null
+          ? ''
+          : `${evt.percentChange > 0 ? '+' : ''}${evt.percentChange}%`;
+      const statusBits: string[] = [evt.status];
+      if (evt.isRetroactive) statusBits.push('retroactive');
+      if (evt.isAmended) statusBits.push('amended');
+      const reason = (evt.reason || '').replace(/"/g, '""');
+      csv += `"${date}","${evt.eventType}","${prev}","${next}","${change}","${statusBits.join(', ')}","${reason}"\n`;
     }
     csv += '\n';
   }
@@ -536,7 +716,7 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
   csv += '\n';
 
   csv +=
-    'Employee Name,Email,Department,Position,Status,Hire Date,Monthly Salary,Currency,Working Days Attended,Total Hours,Estimated Wages\n';
+    'Employee Name,Email,Department,Position,Status,Hire Date,Current Monthly Salary,Currency,Latest Salary Change,Working Days Attended,Total Hours,Estimated Wages\n';
 
   data.forEach((employeeData) => {
     const { employee, compensation } = employeeData;
@@ -553,6 +733,23 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
         ? String(compensation.salary)
         : '';
 
+    const history = sortedCompensationHistory(employeeData.compensationHistory);
+    const latestActiveSalaryChange = (() => {
+      const candidates = history.filter(
+        (e) => e.newSalary !== null && e.newSalary !== undefined && e.status !== 'superseded'
+      );
+      if (candidates.length === 0) return '';
+      const latest = candidates[candidates.length - 1];
+      const dateStr = safeFormatDate(latest.effectiveDate, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+      });
+      const prev = latest.previousSalary === null ? '—' : latest.previousSalary.toLocaleString();
+      const next = latest.newSalary === null ? '—' : latest.newSalary.toLocaleString();
+      return `${dateStr}: ${prev} → ${next}`;
+    })();
+
     csv += `"${employee.displayName || 'N/A'}",`;
     csv += `"${employee.email || 'N/A'}",`;
     csv += `"${employee.department || 'N/A'}",`;
@@ -561,12 +758,46 @@ export function formatAllEmployeesDataAsCSV(data: EmployeeExportData[]): string 
     csv += `"${safeFormatDate(employee.hireDate)}",`;
     csv += `${salStr},`;
     csv += `"${cur}",`;
+    csv += `"${latestActiveSalaryChange}",`;
     csv += `${totalDaysAttended},`;
     csv += `${totalHours.toFixed(2)},`;
     csv += `"${cur} ${totalEstimated.toFixed(2)}"\n`;
   });
 
   csv += '\n\n';
+
+  const anyHistory = data.some(
+    (d) => (d.compensationHistory?.length ?? 0) > 0
+  );
+  if (anyHistory) {
+    csv += 'SALARY CHANGES (ALL EMPLOYEES)\n';
+    csv += 'Employee Name,Effective Date,Event Type,Previous Salary,New Salary,Change %,Status,Reason\n';
+    data.forEach((employeeData) => {
+      const { employee, compensation } = employeeData;
+      const cur = compensation?.currency || DEFAULT_CURRENCY;
+      for (const evt of sortedCompensationHistory(employeeData.compensationHistory)) {
+        const date = safeFormatDate(evt.effectiveDate, {
+          year: 'numeric',
+          month: 'short',
+          day: '2-digit',
+        });
+        const prev =
+          evt.previousSalary === null ? '' : `${cur} ${evt.previousSalary.toLocaleString()}`;
+        const next =
+          evt.newSalary === null ? '' : `${cur} ${evt.newSalary.toLocaleString()}`;
+        const change =
+          evt.percentChange === null
+            ? ''
+            : `${evt.percentChange > 0 ? '+' : ''}${evt.percentChange}%`;
+        const statusBits: string[] = [evt.status];
+        if (evt.isRetroactive) statusBits.push('retroactive');
+        if (evt.isAmended) statusBits.push('amended');
+        const reason = (evt.reason || '').replace(/"/g, '""');
+        csv += `"${employee.displayName || 'N/A'}","${date}","${evt.eventType}","${prev}","${next}","${change}","${statusBits.join(', ')}","${reason}"\n`;
+      }
+    });
+    csv += '\n\n';
+  }
 
   csv += 'DETAILED ATTENDANCE RECORDS\n';
   csv +=
@@ -625,6 +856,7 @@ const TIMECARD_HEADERS = [
   'Break type',
   'Payroll ID',
   'Role',
+  'Effective monthly salary',
   'Wage rate (per day)',
   'Hours worked',
   'Total paid hours',
@@ -677,23 +909,59 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
   const empties = (n: number) => Array.from({ length: n }, () => '""').join(',');
   csv +=
     `"PAY SUMMARY (per-day formula)",` +
-    `"Monthly salary (${cur}) ${salaryLabel}",` +
+    `"Current monthly salary (${cur}) ${salaryLabel}",` +
     `"Working days attended ${totalDaysAttended}",` +
     `"Estimated wages (${cur}) ${totalEstimated.toFixed(2)}",` +
     `${empties(TIMECARD_HEADERS.length - 4)}\n`;
 
+  const sortedHistory = sortedCompensationHistory(data.compensationHistory);
+  if (sortedHistory.length > 0) {
+    csv +=
+      `"SALARY CHANGES","Effective Date","Event Type","Previous","New","Change %","Status","Reason",${empties(TIMECARD_HEADERS.length - 8)}\n`;
+    for (const evt of sortedHistory) {
+      const date = safeFormatDate(evt.effectiveDate, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+      });
+      const prev =
+        evt.previousSalary === null ? '' : `${cur} ${evt.previousSalary.toLocaleString()}`;
+      const next =
+        evt.newSalary === null ? '' : `${cur} ${evt.newSalary.toLocaleString()}`;
+      const change =
+        evt.percentChange === null
+          ? ''
+          : `${evt.percentChange > 0 ? '+' : ''}${evt.percentChange}%`;
+        const statusBits: string[] = [evt.status];
+        if (evt.isRetroactive) statusBits.push('retroactive');
+        if (evt.isAmended) statusBits.push('amended');
+        const reason = (evt.reason || '').replace(/"/g, '""');
+        csv +=
+          `"",` +
+          `"${date}",` +
+          `"${evt.eventType}",` +
+          `"${prev}",` +
+          `"${next}",` +
+          `"${change}",` +
+          `"${statusBits.join(', ')}",` +
+          `"${reason}",` +
+          `${empties(TIMECARD_HEADERS.length - 8)}\n`;
+      }
+    }
+
   if (months.length > 0) {
     csv +=
-      `"MONTHLY BREAKDOWN","Month","Days Attended","Working Days","Per-Day Rate","Estimated Wages",${empties(TIMECARD_HEADERS.length - 6)}\n`;
+      `"MONTHLY BREAKDOWN","Month","Days Attended","Working Days","Monthly Salary","Per-Day Rate","Estimated Wages",${empties(TIMECARD_HEADERS.length - 7)}\n`;
     months.forEach((m) => {
       csv +=
         `"",` +
         `"${m.monthLabel}",` +
         `${m.daysAttended},` +
         `${m.workingDaysInMonth},` +
-        `"${cur} ${m.perDayRate.toLocaleString()}",` +
+        `"${formatMonthlySalaryDisplay(cur, m)}",` +
+        `"${formatPerDayRateDisplay(cur, m)}",` +
         `"${cur} ${m.estimatedWages.toFixed(2)}",` +
-        `${empties(TIMECARD_HEADERS.length - 6)}\n`;
+        `${empties(TIMECARD_HEADERS.length - 7)}\n`;
     });
   }
 
@@ -751,8 +1019,13 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
     const regularHours = calculateRegularHours(totalPaidHours);
     const otHours = calculateOTHours(totalPaidHours);
 
-    const meta = perRecordMeta.get(record);
+    const meta = perRecordMeta.get(recordLookupKey(record));
     const perDayRate = meta?.perDayRate ?? 0;
+    const effectiveSalary = meta?.monthlySalary ?? 0;
+    const effectiveSalaryStr =
+      effectiveSalary > 0
+        ? `${cur} ${effectiveSalary.toLocaleString()}`
+        : 'N/A (add monthly salary in compensation)';
     const wageRateStr =
       perDayRate > 0
         ? `${cur} ${perDayRate.toLocaleString()}/day`
@@ -785,6 +1058,7 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
       `"${breakTypeStr}"`,
       `"${record.payrollId || ''}"`,
       `"${employee.position || employee.role || ''}"`,
+      `"${effectiveSalaryStr}"`,
       `"${wageRateStr}"`,
       actualHours.toFixed(2),
       totalPaidHours.toFixed(2),
@@ -831,6 +1105,7 @@ export function formatEmployeeDataAsTimecardCSV(data: EmployeeExportData): strin
 
   const totalsRow = [
     `"Totals for ${employee.displayName || ''}"`,
+    '""',
     '""',
     '""',
     '""',

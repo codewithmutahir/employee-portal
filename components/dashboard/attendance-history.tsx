@@ -5,9 +5,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, Clock, LogOut, AlertTriangle, CheckCircle, Clock4 } from "lucide-react";
-import { formatDate, formatTime } from "@/lib/utils";
+import { formatDate, formatTime, formatScheduleHm } from "@/lib/utils";
 import { resolveAttendanceStatusLabel } from "@/lib/attendance-status";
 import type { AttendanceStatus } from "@/types";
+
+/**
+ * Friendly minutes-late text:
+ *  - `lateMinutesAfterGrace` is what the employee actually sees (e.g. clock-in
+ *    7:18 with 15-min grace and 7:00 schedule = "3 min late", not "18 min").
+ *  - Returns null when we lack enough data to compute it.
+ */
+function formatLateBy(record: AttendanceRecord): string | null {
+  const after = record.lateMinutesAfterGrace;
+  if (after === null || after === undefined) return null;
+  if (after <= 0) return null;
+  return `${after} min`;
+}
 
 interface AttendanceHistoryProps {
   records: AttendanceRecord[];
@@ -48,10 +61,11 @@ export default function AttendanceHistory({
 
     const s = label as AttendanceStatus;
     if (s === "Late In") {
+      const lateBy = formatLateBy(record);
       return (
         <Badge variant="secondary" className="text-red-900 bg-red-100 border-red-300">
           <AlertTriangle className="w-3 h-3 mr-1" />
-          Late In
+          Late In{lateBy ? ` · ${lateBy}` : ""}
         </Badge>
       );
     }
@@ -182,11 +196,40 @@ export default function AttendanceHistory({
                       )}
                     </div>
 
-                    {isLate && (
-                      <p className="text-sm text-red-600 font-medium border border-red-200 bg-red-50/80 rounded-md px-3 py-2">
-                        Late: clock-in was more than 15 minutes after your scheduled start time.
-                      </p>
-                    )}
+                    {isLate && (() => {
+                      const lateBy = formatLateBy(record);
+                      const sched = record.resolvedScheduledStart
+                        ? formatScheduleHm(record.resolvedScheduledStart)
+                        : null;
+                      const grace = record.graceMinutes ?? 15;
+                      const actual = record.clockIn ? formatTime(record.clockIn) : null;
+                      const mismatch = record.scheduleMismatchSuspected;
+                      if (mismatch) {
+                        return (
+                          <div className="text-sm border border-amber-300 bg-amber-50 rounded-md px-3 py-2 space-y-1">
+                            <p className="font-medium text-amber-900">
+                              Possible schedule mismatch
+                            </p>
+                            <p className="text-amber-800">
+                              Clocked in at <strong>{actual ?? "—"}</strong> but the saved
+                              schedule starts at <strong>{sched ?? "—"}</strong>. The system
+                              marked this Late In, but the gap is more than 4 hours so
+                              it&apos;s usually a wrong AM/PM or wrong-shift configuration.
+                              Update the employee&apos;s schedule (or this day&apos;s shift) so
+                              real lateness can be measured against the correct start time.
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <p className="text-sm text-red-600 font-medium border border-red-200 bg-red-50/80 rounded-md px-3 py-2">
+                          Late by {lateBy ?? `more than ${grace} min`}
+                          {sched ? ` — scheduled ${sched}` : ""}
+                          {actual ? `, clocked in at ${actual}` : ""}
+                          {` (${grace}-min grace).`}
+                        </p>
+                      );
+                    })()}
 
                     {/* Breaks */}
                     {record.breaks && record.breaks.length > 0 && (

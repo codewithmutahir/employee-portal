@@ -105,6 +105,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
   const [resendCredentialsDialogOpen, setResendCredentialsDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [employeesLoading, setEmployeesLoading] = useState(true);
+  const [employeesLoadError, setEmployeesLoadError] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [reportsLoading, setReportsLoading] = useState(true);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -247,6 +248,7 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
 
   async function loadEmployees() {
     setEmployeesLoading(true);
+    setEmployeesLoadError(null);
     try {
       // Admins see every role; management sees only employees.
       const emps = await getAllEmployees(!isAdmin);
@@ -259,9 +261,11 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
         });
       }
     } catch (error: any) {
+      const message = error.message || 'Failed to load employees';
+      setEmployeesLoadError(message);
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to load employees',
+        title: /quota exceeded/i.test(message) ? 'Database quota exceeded' : 'Error',
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -1557,11 +1561,15 @@ export default function ManagementDashboard({ employee }: ManagementDashboardPro
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-muted-foreground">
-                    {selectedDepartment === 'all'
-                      ? `No ${managedUsersLabel} found`
-                      : `No ${managedUsersLabel} in ${selectedDepartment} department`}
-                  </p>
+                  {employeesLoadError ? (
+                    <p className="text-destructive text-sm mb-2 max-w-sm mx-auto">{employeesLoadError}</p>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      {selectedDepartment === 'all'
+                        ? `No ${managedUsersLabel} found`
+                        : `No ${managedUsersLabel} in ${selectedDepartment} department`}
+                    </p>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"

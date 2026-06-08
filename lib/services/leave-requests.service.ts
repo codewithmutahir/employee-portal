@@ -272,6 +272,11 @@ export async function decideLeaveRequest(
       const rd = reqSnap.data() as Record<string, unknown>;
       if (rd.status !== 'pending') throw new Error('This request is no longer pending.');
 
+      // Firestore requires all reads before any writes in a transaction.
+      const compRef = adminDb.collection('compensation').doc(employeeId);
+      const compSnap =
+        leaveKindDeductsBalance(kind) && days > 0 ? await tx.get(compRef) : null;
+
       tx.update(reqRef, {
         status: 'approved' as LeaveRequestStatus,
         kind,
@@ -281,9 +286,7 @@ export async function decideLeaveRequest(
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      if (leaveKindDeductsBalance(kind) && days > 0) {
-        const compRef = adminDb.collection('compensation').doc(employeeId);
-        const compSnap = await tx.get(compRef);
+      if (compSnap) {
         let cur = 0;
         if (compSnap.exists) {
           const v = compSnap.data()?.leaveBalance;

@@ -83,8 +83,12 @@ export async function updateLeaveBalance(
   return employeesService.updateLeaveBalanceOnly(employeeId, leaveBalance, updatedBy);
 }
 export async function getCompensationHistory(employeeId: string, requestedBy: string) {
-  const gate = await assertManagementOrAdmin(requestedBy);
-  if (!gate.ok) return [];
+  // Self-access is allowed so employees can see their own salary changes on
+  // their dashboard; everyone else must be management/admin.
+  if (requestedBy !== employeeId) {
+    const gate = await assertManagementOrAdmin(requestedBy);
+    if (!gate.ok) return [];
+  }
   return employeesService.getCompensationHistory(employeeId);
 }
 export async function addCompensationEvent(

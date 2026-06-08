@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useEffect, type ReactNode } from "react";
-import { Employee, AttendanceRecord, Note, Compensation, LeaveRequest, LeaveRequestKind } from "@/types";
+import {
+  Employee,
+  AttendanceRecord,
+  Note,
+  Compensation,
+  CompensationHistoryEvent,
+  LeaveRequest,
+  LeaveRequestKind,
+} from "@/types";
 import {
   Card,
   CardContent,
@@ -27,7 +35,7 @@ import {
   getEmployeeAttendanceStats,
   getEmployeeMonthlyStats,
 } from "@/app/actions/attendance";
-import { getCompensation } from "@/app/actions/employees";
+import { getCompensation, getCompensationHistory } from "@/app/actions/employees";
 import { calculateTenure } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { formatDate, formatTime, formatScheduleHm, isToday } from "@/lib/utils";
@@ -106,6 +114,7 @@ export default function EmployeeDashboard({
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const [myIssues, setMyIssues] = useState<Issue[]>([]);
   const [compensation, setCompensation] = useState<Compensation | null>(null);
+  const [compensationHistory, setCompensationHistory] = useState<CompensationHistoryEvent[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [leaveForm, setLeaveForm] = useState(() => {
     const d = new Date();
@@ -160,7 +169,7 @@ export default function EmployeeDashboard({
           ? getMyIssues(employee.id, employee.id)
           : Promise.resolve([] as Issue[]);
 
-      const [today, history, notesData, stats, monthly, descriptor, comp, leaves, issuesList] = await Promise.all([
+      const [today, history, notesData, stats, monthly, descriptor, comp, compHistory, leaves, issuesList] = await Promise.all([
         getTodayAttendance(employee.id, getLocalDateString(), employee.scheduleStart, getBrowserTimeZone()),
         getAttendanceHistory(employee.id, 50, employee.scheduleStart, getBrowserTimeZone()),
         getNotes(employee.id, employee.id, employee.role === "management" || employee.role === "admin"), // Updated signature
@@ -168,6 +177,7 @@ export default function EmployeeDashboard({
         getEmployeeMonthlyStats(employee.id, 6),
         getEmployeeFaceDescriptor(employee.id),
         getCompensation(employee.id),
+        getCompensationHistory(employee.id, employee.id),
         leavePromise,
         issuesPromise,
       ]);
@@ -179,6 +189,7 @@ export default function EmployeeDashboard({
       setMonthlyStats(monthly);
       setFaceDescriptor(descriptor);
       setCompensation(comp);
+      setCompensationHistory(compHistory.map((evt) => ({ ...evt })));
       setLeaveRequests(leaves);
       setMyIssues(issuesList);
     } catch (error) {
@@ -666,13 +677,27 @@ export default function EmployeeDashboard({
                     </p>
                   </div>
                 )}
+                {todayAttendance.resolvedScheduledStart && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Scheduled</p>
+                    <p className="font-medium">
+                      {formatScheduleHm(todayAttendance.resolvedScheduledStart)}
+                    </p>
+                  </div>
+                )}
                 {todayAttendance.clockIn && todayAttendance.status && (
                   <div>
                     <p className="text-sm text-muted-foreground">Status</p>
                     <p className={`font-medium ${todayAttendance.status === "Late In" ? "text-red-600" : ""}`}>
-                      {resolveAttendanceStatusLabel(todayAttendance) === "Partial"
-                        ? "In progress"
-                        : todayAttendance.status}
+                      {(() => {
+                        const label = resolveAttendanceStatusLabel(todayAttendance);
+                        if (label === "Partial") return "In progress";
+                        if (label === "Late In") {
+                          const after = todayAttendance.lateMinutesAfterGrace;
+                          return after && after > 0 ? `Late In · ${after} min` : "Late In";
+                        }
+                        return todayAttendance.status;
+                      })()}
                     </p>
                   </div>
                 )}
@@ -685,6 +710,25 @@ export default function EmployeeDashboard({
                   </div>
                 )}
               </div>
+
+              {todayAttendance.status === "Late In" &&
+                todayAttendance.scheduleMismatchSuspected && (
+                  <div className="text-sm border border-amber-300 bg-amber-50 rounded-md px-3 py-2 space-y-1">
+                    <p className="font-medium text-amber-900">
+                      Possible schedule mismatch
+                    </p>
+                    <p className="text-amber-800">
+                      Today&apos;s clock-in is more than 4 hours after the saved
+                      scheduled start
+                      {todayAttendance.resolvedScheduledStart
+                        ? ` (${formatScheduleHm(todayAttendance.resolvedScheduledStart)})`
+                        : ""}
+                      , so the &quot;Late In&quot; status is most likely the schedule being
+                      configured against the wrong shift / AM-PM. Ask your manager
+                      to update your schedule so future late detection is accurate.
+                    </p>
+                  </div>
+                )}
 
               {todayAttendance.breaks && todayAttendance.breaks.length > 0 && (
                 <div>
@@ -944,6 +988,28 @@ export default function EmployeeDashboard({
                       {compensation.currency} {compensation.salary.toLocaleString()} ÷ {workingDays} working days ={" "}
                       {compensation.currency} {salaryPerDay.toLocaleString()} per day (after your weekly day off).
                     </p>
+                    {(() => {
+                      const latestActive = [...compensationHistory]
+                        .filter((e) => e.status === "active" && e.newSalary !== null)
+                        .sort(
+                          (a, b) =>
+                            new Date(b.effectiveDate).getTime() -
+                            new Date(a.effectiveDate).getTime()
+                        )[0];
+                      if (!latestActive) return null;
+                      return (
+                        <p className="mt-2">
+                          <span className="font-medium text-foreground/70">
+                            Effective from:
+                          </span>{" "}
+                          {formatDate(latestActive.effectiveDate)} ({latestActive.eventType}
+                          {latestActive.previousSalary !== null
+                            ? `, previously ${compensation.currency} ${latestActive.previousSalary.toLocaleString()}`
+                            : ""}
+                          ).
+                        </p>
+                      );
+                    })()}
                     <p className="mt-2">
                       <span className="font-medium text-foreground/70">Lateness:</span> clock-in more than 15 minutes after
                       scheduled start (
@@ -954,6 +1020,138 @@ export default function EmployeeDashboard({
                 </div>
               );
             })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Salary changes — visible to the employee so retroactive raises/changes
+          made by admins (with an effective date) are transparent. Sorted
+          newest first. */}
+      {compensation && compensationHistory.length > 0 && (
+        <Card className="overflow-hidden border-0 shadow-md ring-1 ring-border/60">
+          <CardHeader className="space-y-1 border-b bg-gradient-to-r from-emerald-500/[0.08] via-muted/30 to-transparent pb-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+                    <TrendingUp className="h-5 w-5" />
+                  </span>
+                  Salary changes
+                </CardTitle>
+                <CardDescription className="text-base font-medium text-foreground/80">
+                  History of raises, promotions, and corrections
+                </CardDescription>
+              </div>
+              <div className="rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+                {compensationHistory.length} event{compensationHistory.length === 1 ? "" : "s"}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ul className="divide-y divide-border/60">
+              {[...compensationHistory]
+                .sort(
+                  (a, b) =>
+                    new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()
+                )
+                .map((evt) => {
+                  const prev = evt.previousSalary;
+                  const next = evt.newSalary;
+                  const isIncrease =
+                    prev !== null && next !== null && next > prev;
+                  const isDecrease =
+                    prev !== null && next !== null && next < prev;
+                  const effectiveDateLabel = formatDate(evt.effectiveDate);
+                  const fmt = (n: number) =>
+                    `${compensation.currency} ${n.toLocaleString()}`;
+                  return (
+                    <li
+                      key={evt.id}
+                      className={`px-5 py-4 ${evt.isAmended ? "opacity-60" : ""}`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {evt.eventType}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={
+                                evt.status === "scheduled"
+                                  ? "border-blue-200 bg-blue-50 text-blue-800"
+                                  : evt.status === "active"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                                    : "border-slate-200 bg-slate-50 text-slate-600"
+                              }
+                            >
+                              {evt.status === "scheduled"
+                                ? "Scheduled"
+                                : evt.status === "active"
+                                  ? "Active"
+                                  : "Superseded"}
+                            </Badge>
+                            {evt.isRetroactive && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-300 bg-amber-50 text-amber-900"
+                              >
+                                Backdated
+                              </Badge>
+                            )}
+                            {evt.isAmended && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-300 bg-amber-50 text-amber-900"
+                              >
+                                Amended
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Effective {effectiveDateLabel}
+                          </p>
+                          {evt.reason && (
+                            <p className="text-xs text-muted-foreground">
+                              Reason: {evt.reason}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-center justify-end gap-2 text-sm tabular-nums">
+                            <span className="text-muted-foreground">
+                              {prev === null ? "—" : fmt(prev)}
+                            </span>
+                            <span className="text-muted-foreground">→</span>
+                            <span className="font-semibold text-foreground">
+                              {next === null ? "—" : fmt(next)}
+                            </span>
+                          </div>
+                          {evt.percentChange !== null && evt.percentChange !== 0 && (
+                            <p
+                              className={`mt-0.5 text-xs font-medium ${
+                                isIncrease
+                                  ? "text-emerald-600"
+                                  : isDecrease
+                                    ? "text-red-600"
+                                    : "text-muted-foreground"
+                              }`}
+                            >
+                              {evt.percentChange > 0 ? "+" : ""}
+                              {evt.percentChange}%
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+            <div className="border-t border-border/60 bg-muted/25 px-5 py-3 text-xs leading-relaxed text-muted-foreground">
+              Reports and CSV exports use the salary that was effective on each
+              specific work day, so retroactive raises are reflected
+              automatically.
+            </div>
           </CardContent>
         </Card>
       )}

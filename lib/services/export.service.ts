@@ -4,9 +4,13 @@
  */
 
 import { adminDb } from '@/lib/firebase/admin';
-import { Employee, AttendanceRecord, Compensation } from '@/types';
+import { Employee, AttendanceRecord, Compensation, CompensationHistoryEvent } from '@/types';
 import { DEFAULT_CURRENCY } from '@/lib/constants';
-import { getEmployeeDateRangeSchedules, getScheduleHistory } from './employees.service';
+import {
+  getCompensationHistory,
+  getEmployeeDateRangeSchedules,
+  getScheduleHistory,
+} from './employees.service';
 import { ScheduleHistoryEntry } from '@/lib/schedule-history';
 import type { EmployeeDateRangeSchedule } from '@/types';
 
@@ -32,21 +36,29 @@ export async function exportEmployeeData(employeeId: string): Promise<{
   attendance: AttendanceRecord[];
   scheduleHistory: ScheduleHistoryEntry[];
   dateRangeSchedules: EmployeeDateRangeSchedule[];
+  compensationHistory: CompensationHistoryEvent[];
 } | null> {
   try {
-    const [employeeDoc, compensationDoc, attendanceSnapshot, scheduleHistory, dateRangeSchedules] =
-      await Promise.all([
-        adminDb.collection('employees').doc(employeeId).get(),
-        adminDb.collection('compensation').doc(employeeId).get(),
-        adminDb
-          .collection('attendance')
-          .where('employeeId', '==', employeeId)
-          .orderBy('date', 'desc')
-          .limit(365)
-          .get(),
-        getScheduleHistory(employeeId),
-        getEmployeeDateRangeSchedules(employeeId),
-      ]);
+    const [
+      employeeDoc,
+      compensationDoc,
+      attendanceSnapshot,
+      scheduleHistory,
+      dateRangeSchedules,
+      compensationHistory,
+    ] = await Promise.all([
+      adminDb.collection('employees').doc(employeeId).get(),
+      adminDb.collection('compensation').doc(employeeId).get(),
+      adminDb
+        .collection('attendance')
+        .where('employeeId', '==', employeeId)
+        .orderBy('date', 'desc')
+        .limit(365)
+        .get(),
+      getScheduleHistory(employeeId),
+      getEmployeeDateRangeSchedules(employeeId),
+      getCompensationHistory(employeeId),
+    ]);
 
     if (!employeeDoc.exists) {
       return null;
@@ -119,7 +131,14 @@ export async function exportEmployeeData(employeeId: string): Promise<{
       } as AttendanceRecord;
     });
 
-    return { employee, compensation, attendance, scheduleHistory, dateRangeSchedules };
+    return {
+      employee,
+      compensation,
+      attendance,
+      scheduleHistory,
+      dateRangeSchedules,
+      compensationHistory,
+    };
   } catch (error: unknown) {
     console.error('Export employee data error:', error);
     return null;
@@ -141,6 +160,7 @@ export async function exportAllEmployeesData(): Promise<
     attendance: AttendanceRecord[];
     scheduleHistory: ScheduleHistoryEntry[];
     dateRangeSchedules: EmployeeDateRangeSchedule[];
+    compensationHistory: CompensationHistoryEvent[];
   }> | null
 > {
   try {

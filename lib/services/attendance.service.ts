@@ -313,7 +313,15 @@ export async function getTodayAttendance(
         allClockInMinutes: mins,
         timeZone,
       });
-      record = { ...record, status: analysis.status };
+      record = {
+        ...record,
+        status: analysis.status,
+        lateMinutes: analysis.lateMinutes,
+        lateMinutesAfterGrace: analysis.lateMinutesAfterGrace,
+        graceMinutes: analysis.graceMinutes,
+        resolvedScheduledStart: analysis.scheduledStartDisplay,
+        scheduleMismatchSuspected: analysis.scheduleMismatchSuspected,
+      };
     }
 
     return record;
@@ -404,6 +412,11 @@ export async function getAttendanceHistory(
         })),
         totalHours,
         status: analysis.status,
+        lateMinutes: analysis.lateMinutes,
+        lateMinutesAfterGrace: analysis.lateMinutesAfterGrace,
+        graceMinutes: analysis.graceMinutes,
+        resolvedScheduledStart: analysis.scheduledStartDisplay,
+        scheduleMismatchSuspected: analysis.scheduleMismatchSuspected,
         editedBy: data.editedBy,
         editedAt: getTs(data.editedAt),
         isEditedByManagement: data.isEditedByManagement || false,
