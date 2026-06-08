@@ -38,9 +38,11 @@ export default defineConfig({
   use: {
     baseURL: process.env.BASE_URL ?? 'http://localhost:3001',
 
-    /* Headed so you can watch; slowMo adds a small pause between actions. */
-    headless: false,
-    slowMo: 400,
+    /* Headed locally; headless in CI. slowMo goes in launchOptions, not use root. */
+    headless: !!process.env.CI,
+    launchOptions: {
+      slowMo: process.env.CI ? 0 : 400,
+    },
     acceptDownloads: true,
 
     trace: 'on-first-retry',
