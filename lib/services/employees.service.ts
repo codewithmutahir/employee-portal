@@ -1075,6 +1075,8 @@ export async function addCompensationEvent(
     const historyRef = employeeRef.collection('compensationHistory').doc();
 
     await adminDb.runTransaction(async (tx) => {
+      // Firestore transactions: ALL reads must complete before ANY writes.
+
       const [employeeSnap, compensationSnap] = await Promise.all([
         tx.get(employeeRef),
         tx.get(compensationRef),
@@ -1096,29 +1098,37 @@ export async function addCompensationEvent(
         throw new Error('Reason is required for demotion.');
       }
 
-      // Same-day overlap: block if another scheduled or active event exists for this UTC day (unless amending or override).
-      if (
-        !eventInput.forceSameDayOverride &&
-        !eventInput.amendsEventId
-      ) {
+      // Same-day overlap read (must happen before writes).
+      let sameDayConflict = false;
+      if (!eventInput.forceSameDayOverride && !eventInput.amendsEventId) {
         const { start, end } = utcDayBounds(effectiveDate);
-        const startTs = Timestamp.fromDate(start);
-        const endTs = Timestamp.fromDate(end);
         const daySnap = await tx.get(
           employeeRef
             .collection('compensationHistory')
-            .where('effectiveDate', '>=', startTs)
-            .where('effectiveDate', '<', endTs)
+            .where('effectiveDate', '>=', Timestamp.fromDate(start))
+            .where('effectiveDate', '<', Timestamp.fromDate(end))
         );
-        const conflicting = daySnap.docs.filter((doc) => {
+        sameDayConflict = daySnap.docs.some((doc) => {
           const st = (doc.data().status as CompensationEventStatus) || '';
           return st === 'scheduled' || st === 'active';
         });
-        if (conflicting.length > 0) {
-          throw new Error(
-            'Another compensation event is already scheduled or active for this date. Pick a different date or check "Allow same-day override".'
-          );
+      }
+
+      // Active-history read (must happen before writes when this event is active).
+      const activeRefsToSupersede: FirebaseFirestore.DocumentReference[] = [];
+      if (status === 'active') {
+        const activeSnap = await tx.get(
+          employeeRef.collection('compensationHistory').where('status', '==', 'active')
+        );
+        for (const doc of activeSnap.docs) {
+          if (doc.id !== historyRef.id) activeRefsToSupersede.push(doc.ref);
         }
+      }
+
+      if (sameDayConflict) {
+        throw new Error(
+          'Another compensation event is already scheduled or active for this date. Pick a different date or check "Allow same-day override".'
+        );
       }
 
       const eventData = {
@@ -1137,18 +1147,15 @@ export async function addCompensationEvent(
         isAmended: Boolean(eventInput.amendsEventId),
         amendsEventId: eventInput.amendsEventId ?? null,
       };
+
+      // --- writes (after all reads) ---
       tx.set(historyRef, eventData);
 
-      if (status === 'active') {
-        const historyQuery = employeeRef
-          .collection('compensationHistory')
-          .where('status', '==', 'active');
-        const activeSnap = await tx.get(historyQuery);
-        activeSnap.docs.forEach((doc) => {
-          if (doc.id === historyRef.id) return;
-          tx.update(doc.ref, { status: 'superseded' });
-        });
+      for (const ref of activeRefsToSupersede) {
+        tx.update(ref, { status: 'superseded' });
+      }
 
+      if (status === 'active') {
         if (eventInput.newSalary !== null) {
           tx.set(
             compensationRef,
